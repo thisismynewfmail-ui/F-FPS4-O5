@@ -1,128 +1,119 @@
-**Project Context:** A 2007 Half-Life 2 visual styled survival horror game with subtle cosmic horror undertones.
+# ASHGROVE
 
-**Role:** You are an expert Lead Environment Artist, Level Designer, and Game Architect.
+A PS1-styled wave-survival FPS set in a procedurally generated small town.
+Everything — the street layout, every building, every interior, every texture,
+every sound — is generated at load time from a single integer seed. No art
+assets, no audio files, no dependencies, no build step.
 
-**Objective:** Your goal is to design and create a functional FPS Zombie-survival wave based Left-4Dead Half-Life 2 style game.
+The original design brief lives in [`docs/BRIEF.md`](docs/BRIEF.md); the
+decisions taken to satisfy it are written up in
+[`docs/DESIGN.md`](docs/DESIGN.md).
 
 ---
 
-## 1. CORE AESTHETIC & THEMATIC TONE
+## Running it
 
-- **PS1 Retro Visuals:** All designs must adhere strictly to PS1 hardware limitations and aesthetics. Utilize low-polygon counts, affine texture mapping (warping), vertex lighting, and pixelated, low-resolution texture palettes.
-    
-- **Subtle Cosmic Horror:** The environment must feel "lived-in, abandoned, and slightly wrong." Reinforce the cosmic horror theme _without_ relying on overt supernatural elements or explicit monsters. Achieve this through oppressive architectural proportions, claustrophobic spatial design, unsettling shadow casting, and an overarching sense of isolation and decay. The geometry must remain grounded and functional, but the atmosphere must feel deeply unsettling.
-    
+ES modules need to be served over HTTP, not opened from disk.
 
-## 2. MACRO-LEVEL URBAN PLANNING & ZONING LOGIC
+```sh
+npm start                 # serves on :8080 and opens a browser
+# or any static server:
+python3 -m http.server 8080
+```
 
-Building placement must strictly follow organic, historically evolved urban planning logic. **Absolutely no grid-based symmetry and no random scattering are permitted.**
+Then open <http://localhost:8080/>. Requires WebGL2.
 
-- **Organic Clustering:**
-    
-    - **Residential Zones:** Clustered tightly together, separated by winding, naturally curved streets and cul-de-sacs.
-        
-    - **Commercial Zones:** Concentrated densely near the town center, main thoroughfares, and transit hubs to create a bustling (now abandoned) focal point.
-        
-    - **Industrial Zones:** Relegated strictly to the absolute edges of the map, logically situated near out-of-bounds railways, waterways, or highways, physically and visually separated from living spaces.
-        
-- **Realistic Rarity & Population Scaling:** Building quantities must perfectly mirror real-world urban scarcity to maintain immersion:
-    
-    - **Libraries:** Exactly ONE (1) for the entire town.
-        
-    - **Churches/Places of Worship:** MAXIMUM of TWO (2).
-        
-    - **Gas Stations:** A small handful (3 to 5 maximum).
-        
-    - **Residential Housing:** Dozens of varied, distinct houses forming the bulk of the map's footprint.
-        
+Query parameters:
 
-## 3. ARCHITECTURAL GEOMETRY & STRUCTURAL INTEGRITY
+| Parameter    | Values                          | Effect                                  |
+|--------------|---------------------------------|-----------------------------------------|
+| `seed`       | any integer                     | Regenerates the entire town             |
+| `preset`     | `authentic` `soft` `clean`      | How hard the PS1 filter is applied      |
+| `difficulty` | float, default `1`              | Scales wave size and damage             |
 
-Every building must possess fully functional, logical geometry. No flat "fake" facades are allowed.
+`?seed=88888` is a notably larger town; `?preset=clean` disables the vertex
+wobble and affine warping if you want to look at the level design directly.
 
-- **Functional Openings:**
-    
-    - **Doors:** Must be placed logically on walls that face streets, pathways, or natural entry points. Never place doors randomly on blind sides or illogical faces.
-        
-    - **Windows (Fenestration):** Must align perfectly with interior room layouts. A player looking through a window from the outside must clearly see the specific room (e.g., a bedroom, a kitchen) that the window belongs to.
-        
-- **Roofs & Climate Logic:** Roofs must perfectly match the building's exact footprint. Slopes must follow strict climate logic (e.g., steep pitches for snow-shedding in colder zones, flat roofs for arid zones). Include functional roof details like chimneys, HVAC units, vents, and gutters.
-    
-- **Foundations & Trim:** Every structure must have distinct foundational bases (concrete slabs, brick crawlspace skirts) and architectural trim (corner boards, eaves, fascia) to break up the geometry and add silhouette depth.
-    
+## Controls
 
-## 4. MATERIALITY, TEXTURING & ENVIRONMENTAL DECAY
+| Key                | Action                                            |
+|--------------------|---------------------------------------------------|
+| `W` `A` `S` `D`    | Move                                              |
+| `Shift`            | Sprint (drains stamina)                           |
+| `Ctrl` / `C`       | Crouch                                            |
+| `Space`            | Jump                                              |
+| Mouse / `LMB`      | Look / fire                                       |
+| `RMB`              | Aim down the scope (hunting rifle)                |
+| `R`                | Reload                                            |
+| `1`–`5`, wheel, `Q`| Switch weapon                                     |
+| `E`                | Take the highlighted item                         |
+| `F`                | Flashlight (battery drains while lit)             |
+| `F2`               | Cycle render preset                               |
+| `F3`               | Performance overlay                               |
+| `Esc`              | Release the cursor                                |
 
-Texture integration is **mandatory** across all building surfaces.
+## Playing
 
-- **Distinct Texture Sets:** You must create distinct texture sets for walls, roofs, doors, windows, foundations, and trim.
-    
-- **Zero Texture Re-use:** Ban the use of a single wall texture across every building. Create massive visual variation through color shifts and material differences (e.g., red brick vs. weathered wood siding vs. brutalist concrete vs. stucco).
-    
-- **Spatial Weathering & Storytelling:**
-    
-    - **Town Center:** Buildings near the commercial core should appear relatively well-maintained, with cleaner textures, intact glass, and less overgrowth.
-        
-    - **Outskirts:** Buildings on the map's edges must show heavy environmental decay. Include textures featuring moss, rust, peeling paint, shattered windows, and water stains.
-        
-- **Retro Readability:** All textures must be designed to read clearly and distinctly at low PS1 sprite resolutions, utilizing strong contrast and distinct pixel patterns.
-    
+Waves arrive on a timer; between them you have half a minute to loot houses and
+shops. The infected come out of the town rather than out of thin air — closets,
+stockrooms, alleys, wrecked cars — and they spawn out of your line of sight.
+There are five types: shamblers, workers, runners, crawlers, riot officers, and
+the hulk, which you should not fight in the open.
 
-## 5. INTERIOR DESIGN, AMENITIES & GAMEPLAY INTEGRATION
+You start with a crowbar and a pistol with unlimited reserve ammunition.
+Everything else — the SMG, the pump shotgun, the hunting rifle, medkits, armour
+— is inside buildings. The town is the ammunition economy.
 
-Interiors are not skyboxes; they are fully modeled, navigable spaces that must serve gameplay.
+Navigate by landmarks, not by a map. The compass strip names what you can see:
+the water tower on the eastern rise, the town square, the clock tower.
 
-- **Navigable Floor Plans:** Design logical hallways, rooms, and staircases that allow for fluid player movement and enemy pathfinding.
-    
-- **Gameplay Integration:** Interiors must contain meaningful loot drops, tactical cover positions (e.g., overturned heavy oak tables, concrete pillars, thick load-bearing walls), and strategic enemy spawn opportunities (e.g., dark closets, blind hallway corners, drop-ceilings).
-    
-- **Exhaustive Amenities & Sensible Items:** Interiors MUST be heavily populated with sensible, context-appropriate items. Think through the daily lives of the abandoned residents and design accordingly:
-    
-    - _Residential:_ Beds, dressers, kitchen appliances, couches, CRT TVs, scattered personal effects, bookshelves.
-        
-    - _Commercial:_ Shelving units, cash registers, stockroom pallets, display racks, mannequins.
-        
-    - _Industrial:_ Heavy machinery, wooden crates, toolbenches, hazardous material barrels, chain-link fences.
-        
+## Repository layout
 
-## 6. THE URBAN CORE: MID-TO-LATE GAME COMBAT ARENA
+```
+index.html               boot page and loading screen
+src/
+  core/     math.js      seeded RNG, noise, mat4, 2D polygon surgery
+            input.js     keyboard, mouse, pointer lock
+            audio.js     every sound, synthesised at runtime
+  render/   gl.js        WebGL2 helpers, texture arrays, vertex layout
+            shaders.js   vertex snapping, affine mapping, dither, sky
+            meshbuilder.js  geometry accumulation with baked vertex light
+            renderer.js  the frame
+            font.js      5x7 bitmap font for the HUD
+  art/      texgen.js    the procedural texture painter
+            materials.js the material library and building style kits
+  world/    config.js    every tunable that shapes the town
+            roads.js     organic street growth, planarisation, city blocks
+            plan.js      zoning, lot subdivision, building programme
+            building.js  walls with real openings, roofs, trim, foundations
+            interior.js  floor plans, partitions, fit-out
+            props.js     furniture and street infrastructure
+            world.js     assembly, collision, lighting, spawn points
+  game/     collision.js 2.5D segment/floor collision world
+            nav.js       town-wide flow field
+            player.js    movement, camera, condition
+            weapons.js   the arsenal and viewmodels
+            actors.js    the infected: animation, AI, bodies
+            director.js  wave pacing
+            hud.js       the overlay
+            game.js      the loop that owns everything
+  main.js                boot and frame scheduling
+tools/                   development harnesses (see below)
+```
 
-One major portion of the map is dedicated to a dense urban city area. This is the visual centerpiece and the primary combat arena for mid-to-late game waves.
+## Development tools
 
-- **Infrastructure & Traffic Flow:**
-    
-    - **Main Roads:** Wide enough to allow for vehicle movement and large-scale enemy encounters.
-        
-    - **Side Streets:** Create a navigable, organic branching grid that feeds off the main roads.
-        
-    - **Alleys:** Narrow, claustrophobic pathways between buildings designed specifically for flanking routes and close-quarters combat.
-        
-    - **Intersections:** Designed with clear sightlines to allow for long-range combat, situational awareness, and tactical planning.
-        
-- **Public Spaces:** Integrate plazas, parks, and town squares to break up the dense building clusters, providing open combat zones and visual resting points.
-    
-- **Wayfinding & Exploration:** The layout must heavily reward exploration without punishing navigation. Players must be able to easily orient themselves using distinct, towering landmarks (e.g., a clock tower, a unique statue, a brightly colored water tower).
-    
+These run in Node with no browser — the world generator has no GL dependency,
+which makes it directly testable.
 
-## 7. MICRO-DETAILS, PROPS & STREET-LEVEL INFRASTRUCTURE
+```sh
+node tools/validate.mjs 8        # build 8 towns, assert the brief's hard rules
+node tools/build-world.mjs 42    # build one town, print geometry budgets
+node tools/plan-preview.mjs 42 plan.svg   # render the street plan as SVG
+node tools/smoke.mjs /tmp/shots  # boot headless Chromium, screenshot the game
+```
 
-Revise and expand functional city elements. These details cost very little in sprite/polygon resources but massively increase environmental believability and immersion.
-
-- **Required Street Elements:**
-    
-    - Non-functional traffic lights and weathered street signs.
-        
-    - Bus stops with shattered glass shelters and rotting wooden benches.
-        
-    - Faded crosswalks painted on the asphalt.
-        
-    - Fire hydrants (some broken, leaking, or knocked over).
-        
-    - Manhole covers (some displaced, some glowing faintly from the sewers below).
-        
-    - Utility poles with tangled, drooping, and sparking wires.
-        
-- **Placement Logic:** These props must be placed realistically along curbs, intersections, sidewalks, and alley entrances, acting as both environmental dressing and low-profile tactical cover.
-    
-
-Be expansive and think through your design decisions and overall work. Ensure correct visual matching to the provided reference images.
+`validate.mjs` is the useful one: it asserts the scarcity rules (exactly one
+library, at most two churches, three to five filling stations, dozens of
+houses), that every building has a front door, that the collision world is
+populated, and that the triangle budget holds. All eight reference seeds pass.
