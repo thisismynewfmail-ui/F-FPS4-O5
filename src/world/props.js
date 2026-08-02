@@ -1100,7 +1100,7 @@ export function car(mb, ctx, x, z, yaw, rng, o = {}) {
   const glass = M(ctx, rng.chance(0.6) ? 'glass_broken' : 'glass_dirty', 1.2);
   const tyre = M(ctx, 'prop_black', 0.5);
   const L = rng.range(4.2, 4.9), W = 1.82;
-  mb.push(x, 0, z, yaw);
+  mb.push(x, o.y || 0, z, yaw);
   mb.boxC(0, 0.42, 0, W, 0.52, L, body);                            // main body
   mb.boxC(0, 0.30, 0, W + 0.06, 0.16, L - 0.5, M(ctx, 'prop_darksteel', 0.8));
   // Cabin.
@@ -1135,7 +1135,7 @@ export function truck(mb, ctx, x, z, yaw, rng, o = {}) {
   const boxC = M(ctx, o.box || 'prop_white', 2.2);
   const tyre = M(ctx, 'prop_black', 0.5);
   const L = rng.range(7.5, 9.5), W = 2.4;
-  mb.push(x, 0, z, yaw);
+  mb.push(x, o.y || 0, z, yaw);
   mb.boxC(0, 0.55, -L / 2 + 1.3, W, 1.55, 2.5, cabC);
   mb.boxC(0, 1.35, -L / 2 + 0.15, W - 0.3, 0.75, 0.06, M(ctx, 'glass_dirty', 1.4));
   mb.boxC(0, 0.62, L / 2 - (L - 2.8) / 2, W + 0.1, 2.5, L - 2.8, boxC);

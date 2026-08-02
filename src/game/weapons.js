@@ -259,24 +259,25 @@ export class Arsenal {
     const pump = this.pumpT > 0 ? Math.sin((1 - this.pumpT / (d.rate * 0.75)) * Math.PI) : 0;
 
     const zoom = this.zoomT;
-    const baseX = lerp(0.165, 0.0, zoom) * SCREEN_RIGHT;
-    const baseY = lerp(-0.170, -0.078, zoom);
-    const baseZ = lerp(0.60, 0.70, zoom);
+    const baseX = lerp(0.195, 0.0, zoom) * SCREEN_RIGHT;
+    const baseY = lerp(-0.200, -0.080, zoom);
+    const baseZ = lerp(0.56, 0.70, zoom);
 
     const px = baseX + bx + this.sway.x * SCREEN_RIGHT;
     const py = baseY + by + swapDip + reloadDip + this.sway.y - this.kick * 0.10;
     const pz = baseZ - this.kick * 0.16 - pump * 0.05;
 
-    // A few degrees of yaw so you see the weapon's side profile rather than
-    // an edge-on slab.
-    mb.push(px, py, pz, 0.22);
+    // Yawed well off-axis when hip-firing, straightened when aiming. Viewed
+    // end-on a weapon projects to almost nothing and reads as two disconnected
+    // slabs; the side profile is what makes it legible at 320x240.
+    mb.push(px, py, pz, lerp(0.42, 0.0, zoom));
     // Tilt: recoil pitches the muzzle up, reloading rolls the weapon inward.
     const tilt = this.kick * 0.5;
     const M = (n, t) => lib.m(n, t);
     const metal = M('gun_metal', 0.35);
     const dark = M('gun_metal', 0.5);   // pure black reads as a hole at 320x240
     const wood = M('gun_wood', 0.6);
-    const grip = M('gun_grip', 0.4);
+    const grip = M('gun_wood', 0.45);
 
     // Everything below is authored in metres at arm's length; X is negated so
     // positive numbers read as "toward screen right".

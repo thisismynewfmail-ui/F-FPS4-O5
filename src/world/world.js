@@ -147,6 +147,7 @@ export class World {
     this.spawns = [];
     this.loot = [];
     this.doorways = [];
+    this.vehicles = [];
     this.lights = [];
     this.buildings = [];
     this.landmarks = [];
@@ -218,7 +219,7 @@ export class World {
         store.emit(cx, cz, (mb) => {
           mb.quadMat([x, TERRAIN_Y, z + cell], [x + cell, TERRAIN_Y, z + cell],
             [x + cell, TERRAIN_Y, z], [x, TERRAIN_Y, z], mat, [0, 1, 0],
-            { spanU: cell, spanV: cell, uvShift: [x / mat.tile, z / mat.tile], maxEdge: 6 });
+            { spanU: cell, spanV: cell, uvShift: [x / mat.tile, z / mat.tile], maxEdge: 4 });
         });
       }
     }
@@ -236,7 +237,7 @@ export class World {
       const decay = this.zoning.decayAt(c.x, c.z);
       const mat = strip.cls === 'alley' ? concrete : (decay > 0.55 ? worn : asphalt);
       store.emit(c.x, c.z, (mb) => {
-        mb.polyFlatTess(strip.poly, ROAD_Y, mat, 3);
+        mb.polyFlatTess(strip.poly, ROAD_Y, mat, 1.5);
       });
       // Lane markings on the bigger roads.
       if ((strip.cls === 'arterial' || strip.cls === 'main') && strip.length > 8) {
@@ -258,7 +259,7 @@ export class World {
       const c = polyCentroid(pad.poly);
       const decay = this.zoning.decayAt(c.x, c.z);
       const mat = decay > 0.55 ? worn : asphalt;
-      store.emit(c.x, c.z, (mb) => mb.polyFlatTess(pad.poly, ROAD_Y, mat, 3));
+      store.emit(c.x, c.z, (mb) => mb.polyFlatTess(pad.poly, ROAD_Y, mat, 1.5));
 
       // Crosswalks at proper junctions.
       if (pad.degree >= 3 && pad.radius > 4.5) {
@@ -312,7 +313,7 @@ export class World {
           if (len < 0.05) continue;
           mb.quadMat([a.x, SIDEWALK_Y, a.z], [b.x, SIDEWALK_Y, b.z],
             [b2.x, SIDEWALK_Y, b2.z], [a2.x, SIDEWALK_Y, a2.z], walk, [0, 1, 0],
-            { spanU: len, spanV: Math.hypot(a2.x - a.x, a2.z - a.z), maxEdge: 3.0 });
+            { spanU: len, spanV: Math.hypot(a2.x - a.x, a2.z - a.z), maxEdge: 1.6 });
         }
       });
 
@@ -323,7 +324,7 @@ export class World {
         : this.m(zone === ZONE.INDUSTRIAL ? 'gravel'
           : zone === ZONE.CORE ? 'sidewalk_worn'
             : (decay > 0.55 ? 'grass_dead' : 'grass'), 5);
-      store.emit(c.x, c.z, (mb) => mb.polyFlatTess(build, SIDEWALK_Y, groundMat, 3));
+      store.emit(c.x, c.z, (mb) => mb.polyFlatTess(build, SIDEWALK_Y, groundMat, 1.5));
     }
   }
 
@@ -455,8 +456,12 @@ export class World {
               [gr.x + uz * w, SIDEWALK_Y + 0.02, gr.z - ux * w],
               [gr.x - uz * w, SIDEWALK_Y + 0.02, gr.z + ux * w],
               [0, 0, 1, l / 4], dm.layer, [0, 1, 0], { maxEdge: 4 });
-            if (rng.chance(0.35)) P.car(mb, ctx, lerp(gc.x, gr.x, 0.45), lerp(gc.z, gr.z, 0.45),
-              Math.atan2(ux, uz), rng, { wrecked: rng.chance(0.4) });
+            const dvx = lerp(gc.x, gr.x, 0.45), dvz = lerp(gc.z, gr.z, 0.45);
+            if (rng.chance(0.35) && this.vehicleFits(dvx, dvz, 2.9)) {
+              this.vehicles.push({ x: dvx, z: dvz, r: 2.9 });
+              P.car(mb, ctx, dvx, dvz, Math.atan2(ux, uz), rng,
+                { wrecked: rng.chance(0.4), y: SIDEWALK_Y + 0.02 });
+            }
           }
         }
 
@@ -657,27 +662,49 @@ export class World {
     }
     this.poles = poles;
 
-    // Abandoned traffic, thickest downtown.
+    // Abandoned traffic, thickest downtown. Vehicles are placed into discrete
+    // slots along the strip and rejected if they would overlap one already
+    // placed — random positions along a short strip put cars inside each other.
     for (const strip of this.surfaces.strips) {
       if (strip.cls === 'alley' || strip.length < 9) continue;
       const c = polyCentroid(strip.poly);
       const zone = this.zoning.zoneAt(c.x, c.z);
       const density = zone === ZONE.CORE ? 0.75 : zone === ZONE.MIXED ? 0.5 : 0.28;
-      const n = rng.chance(density) ? rng.int(1, zone === ZONE.CORE ? 3 : 2) : 0;
-      for (let i = 0; i < n; i++) {
-        const t = rng.range(0.15, 0.85);
-        const lane = rng.sign() * rng.range(0.9, strip.width / 2 - 1.3);
+      if (!rng.chance(density)) continue;
+      const slots = Math.max(1, Math.floor(strip.length / 7.5));
+      const want = Math.min(slots, rng.int(1, zone === ZONE.CORE ? 3 : 2));
+      const order = rng.shuffle([...Array(slots).keys()]);
+      for (let i = 0; i < want; i++) {
+        const isTruck = rng.chance(0.16) && strip.width > 9.5 && strip.length > 18;
+        const half = isTruck ? 5.0 : 2.9;
+        // Keep clear of the junction pads at either end.
+        const margin = half + 1.0;
+        if (strip.length < margin * 2) break;
+        const t = (margin + ((order[i] + 0.5) / slots) * (strip.length - margin * 2)) / strip.length;
+        const laneMax = strip.width / 2 - 1.4;
+        if (laneMax < 0.6) break;
+        const lane = rng.sign() * rng.range(0.6, laneMax);
         const px = lerp(strip.a.x, strip.b.x, t) - strip.dir.z * lane;
         const pz = lerp(strip.a.z, strip.b.z, t) + strip.dir.x * lane;
-        const yaw = Math.atan2(strip.dir.x, strip.dir.z) + (rng.chance(0.5) ? 0 : Math.PI) + rng.range(-0.35, 0.35);
+        if (!this.vehicleFits(px, pz, half)) continue;
+        this.vehicles.push({ x: px, z: pz, r: half });
+        const yaw = Math.atan2(strip.dir.x, strip.dir.z) + (rng.chance(0.5) ? 0 : Math.PI) + rng.range(-0.22, 0.22);
         store.emit(px, pz, (mb) => {
           mb.env = this.env;
           const ctx = Object.assign({ mb }, ctxBase);
-          if (rng.chance(0.16) && strip.width > 9) P.truck(mb, ctx, px, pz, yaw, rng);
+          if (isTruck) P.truck(mb, ctx, px, pz, yaw, rng);
           else P.car(mb, ctx, px, pz, yaw, rng, { wrecked: rng.chance(0.45) });
         });
       }
     }
+  }
+
+  /** True if a vehicle of radius `r` at (x,z) clears everything already parked. */
+  vehicleFits(x, z, r) {
+    for (const v of this.vehicles) {
+      if (dist2D(x, z, v.x, v.z) < (r + v.r) * 0.92) return false;
+    }
+    return true;
   }
 
   // --- 8. squares, parks, yards --------------------------------------------
@@ -862,6 +889,7 @@ export class World {
     this.stats.loot = this.loot.length;
     this.stats.collision = this.collision.stats;
     this.stats.doorways = this.doorways.length;
+    this.stats.vehicles = this.vehicles.length;
   }
 
   /** Hand finished chunks to the renderer. */

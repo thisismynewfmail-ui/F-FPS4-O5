@@ -17,14 +17,15 @@ const GREY = [0.72, 0.74, 0.72, 0.85];
 const WHITE = [0.92, 0.94, 0.92, 1];
 
 export function drawHUD(r, game, dt) {
-  const W = r.rt.width, H = r.rt.height;
-  r.setUISize(W, H);
+  // Lay out in the renderer's virtual HUD space (canvas-derived, preset
+  // independent) rather than in render-target pixels.
+  const W = r.uiWidth, H = r.uiHeight;
   r.uiBegin();
 
   const player = game.player;
   const arsenal = game.arsenal;
   const director = game.director;
-  const s = Math.max(1, Math.round(H / 240));   // integer HUD scale
+  const s = 1;   // one virtual pixel; r.hudScale maps it to canvas pixels
 
   // --- crosshair ----------------------------------------------------------
   if (!player.dead && game.state === 'play') {
@@ -49,12 +50,12 @@ export function drawHUD(r, game, dt) {
   }
 
   // --- condition (bottom left) --------------------------------------------
-  const pad = 6 * s;
-  const baseY = H - pad - 22 * s;
+  const pad = 8 * s;
+  const baseY = H - pad - 20 * s;
   const hp = Math.max(0, Math.round(player.health));
   const hpCol = hp < 25 ? RED : AMBER;
   r.uiText('HEALTH', pad, baseY - 9 * s, s, AMBER_DIM);
-  r.uiText(String(hp).padStart(3, ' '), pad, baseY, s * 2.4, hpCol);
+  r.uiText(String(hp).padStart(3, ' '), pad, baseY, s * 2.0, hpCol);
   const barW = 46 * s;
   r.uiRect(pad, baseY + 21 * s, barW, 2 * s, [0.2, 0.16, 0.1, 0.8]);
   r.uiRect(pad, baseY + 21 * s, barW * clamp01(player.health / player.maxHealth), 2 * s, hpCol);
@@ -62,7 +63,7 @@ export function drawHUD(r, game, dt) {
   if (player.armor > 0) {
     const ax = pad + 60 * s;
     r.uiText('ARMOR', ax, baseY - 9 * s, s, AMBER_DIM);
-    r.uiText(String(Math.round(player.armor)).padStart(3, ' '), ax, baseY, s * 2.4, [0.55, 0.78, 0.95, 1]);
+    r.uiText(String(Math.round(player.armor)).padStart(3, ' '), ax, baseY, s * 2.0, [0.55, 0.78, 0.95, 1]);
     r.uiRect(ax, baseY + 21 * s, barW, 2 * s, [0.14, 0.18, 0.24, 0.8]);
     r.uiRect(ax, baseY + 21 * s, barW * clamp01(player.armor / 100), 2 * s, [0.55, 0.78, 0.95, 1]);
   }
@@ -81,10 +82,10 @@ export function drawHUD(r, game, dt) {
   if (!def.melee) {
     const clipTxt = String(arsenal.clipCount);
     const resTxt = def.infinite ? '---' : String(arsenal.reserveCount);
-    const clipW = r.textWidth(clipTxt, s * 2.4);
+    const clipW = r.textWidth(clipTxt, s * 2.0);
     const resW = r.textWidth(resTxt, s * 1.3);
     const lowClip = arsenal.clipCount <= def.clip * 0.25;
-    r.uiText(clipTxt, rightX - clipW - resW - 8 * s, baseY, s * 2.4, lowClip ? RED : AMBER);
+    r.uiText(clipTxt, rightX - clipW - resW - 8 * s, baseY, s * 2.0, lowClip ? RED : AMBER);
     r.uiText('/', rightX - resW - 6 * s, baseY + 7 * s, s * 1.3, AMBER_DIM);
     r.uiText(resTxt, rightX - resW, baseY + 7 * s, s * 1.3, AMBER_DIM);
     if (arsenal.reloading > 0) {

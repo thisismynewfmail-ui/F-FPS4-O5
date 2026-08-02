@@ -56,6 +56,7 @@ export class Renderer {
 
     this.setupUI();
     this.rt = null;
+    this.hudScale = 1;
     this.resize();
   }
 
@@ -99,6 +100,7 @@ export class Renderer {
       this.canvas.height = h;
     }
     const aspect = w / h;
+    this.updateHudSize();
     const ih = this.pixelated ? this.internalHeight : h;
     const iw = Math.round(ih * aspect);
     if (!this.rt || this.rt.width !== iw || this.rt.height !== ih) {
@@ -417,7 +419,24 @@ export class Renderer {
     gl.bindVertexArray(null);
   }
 
-  /** HUD is laid out in "virtual pixels" matching the internal resolution. */
+  /**
+   * HUD layout space.
+   *
+   * Deliberately derived from the *canvas*, not the internal render target: the
+   * HUD is drawn to the backbuffer after the upscale, so tying it to the render
+   * target made the overlay double in size whenever the render preset changed,
+   * and made it enormous at the 240-line authentic preset.
+   *
+   * `hudScale` is an integer number of canvas pixels per virtual pixel, so the
+   * 5x7 font still lands on exact pixel boundaries and stays crisp.
+   */
+  updateHudSize() {
+    const target = 520;   // virtual lines; ~16px glyphs on a 1080p canvas
+    this.hudScale = clamp(Math.round(this.canvas.height / target), 1, 8);
+    this.uiWidth = Math.round(this.canvas.width / this.hudScale);
+    this.uiHeight = Math.round(this.canvas.height / this.hudScale);
+  }
+
   setUISize(w, h) { this.uiWidth = w; this.uiHeight = h; }
 }
 

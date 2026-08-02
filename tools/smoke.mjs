@@ -59,6 +59,7 @@ if (ok) {
     g.fadeIn = 0;
     // Inspection run: the player must survive to reach the later shots.
     g.player.maxHealth = 1e9; g.player.health = 1e9;
+    g.player.torchOn = true;   // the game now starts with it off
     // Pointer lock is unavailable headless, so drive the player directly.
     window.__drive = (fn) => fn(g);
   });
@@ -112,6 +113,22 @@ if (ok) {
       g.__label = b.label;
     }],
     ['10-interior-lit', (g) => { g.player.yaw += 1.9; }],
+    ['11-traffic', (g) => {
+      // Stand beside the tightest cluster of parked vehicles and look at it.
+      const V = g.world.vehicles;
+      let best = null;
+      for (const v of V) {
+        let n = 0;
+        for (const o of V) if (o !== v && Math.hypot(o.x - v.x, o.z - v.z) < 22) n++;
+        if (!best || n > best.n) best = { n, v };
+      }
+      if (!best) return;
+      g.player.x = best.v.x + 9; g.player.z = best.v.z + 9;
+      g.player.y = g.world.collision.floorAt(g.player.x, g.player.z, 4, 6);
+      g.player.yaw = Math.atan2(best.v.x - g.player.x, best.v.z - g.player.z);
+      g.player.pitch = -0.12;
+      g.horde.clear();
+    }],
     ['08-viewmodel-shotgun', (g) => { g.arsenal.current = 'shotgun'; g.chunks = g.__chunks; }],
   ];
 
@@ -123,6 +140,39 @@ if (ok) {
     await page.waitForTimeout(120);
     await page.screenshot({ path: `${OUT}/${name}.png` });
   }
+
+  // --- axis regression checks --------------------------------------------
+  // Both of these were shipped inverted once. The camera basis puts
+  // screen-right at world (-cos yaw, sin yaw); looking right and strafing right
+  // must both move along that vector.
+  const axes = await page.evaluate(async () => {
+    const g = window.__game;
+    const right = () => ({ x: -Math.cos(g.player.yaw), z: Math.sin(g.player.yaw) });
+    const fwd = () => ({ x: Math.sin(g.player.yaw), z: Math.cos(g.player.yaw) });
+
+    // Look: inject a rightward mouse delta and see which way forward swings.
+    g.player.dead = false;
+    const r0 = right(), f0 = fwd();
+    g.input.locked = true;
+    g.input.mouse.dx = 200; g.input.mouse.dy = 0;
+    g.player.update(0.016, g.input, g.world.collision, null);
+    g.input.locked = false;
+    const f1 = fwd();
+    const lookDot = (f1.x - f0.x) * r0.x + (f1.z - f0.z) * r0.z;
+
+    // Strafe: hold D for a few frames and see which way the player slides.
+    const sx = g.player.x, sz = g.player.z;
+    const r1 = right();
+    g.input.keys.add('KeyD');
+    for (let i = 0; i < 12; i++) g.player.update(0.016, g.input, g.world.collision, null);
+    g.input.keys.delete('KeyD');
+    const strafeDot = (g.player.x - sx) * r1.x + (g.player.z - sz) * r1.z;
+    return { lookDot, strafeDot };
+  });
+  const axisOk = axes.lookDot > 0 && axes.strafeDot > 0;
+  console.log(`axes: look ${axes.lookDot > 0 ? 'ok' : 'INVERTED'} (${axes.lookDot.toFixed(4)}), ` +
+    `strafe ${axes.strafeDot > 0 ? 'ok' : 'INVERTED'} (${axes.strafeDot.toFixed(3)})`);
+  if (!axisOk) logs.push('[fatal] look or strafe axis is inverted');
 
   const info = await page.evaluate(() => {
     const g = window.__game;

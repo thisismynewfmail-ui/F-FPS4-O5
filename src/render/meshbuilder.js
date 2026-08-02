@@ -201,35 +201,48 @@ export class MeshBuilder {
    * where vertex lighting needs interior samples, not just corners.
    */
   polyFlatTess(poly, y, material, cell = 6, opts = {}) {
-    // Triangulate first, then refine each triangle. Slicing the polygon with
-    // half-plane clipping looked cheaper, but Sutherland-Hodgman on a concave
-    // subject emits zero-width bridge edges; ear clipping those produced long
-    // slivers that smeared the ground texture into wedges across whole blocks.
+    // Triangulate first (ear clipping handles concave blocks correctly), then
+    // clip each triangle against a world-aligned grid. Clipping the whole
+    // polygon directly is wrong — Sutherland-Hodgman on a concave subject emits
+    // zero-width bridge edges — and merely subdividing the longest edge leaves
+    // slivers, whose extreme aspect ratio is what smeared affine-mapped ground
+    // textures into streaks. Grid cells bound edge length *and* aspect ratio,
+    // which is what affine mapping actually needs.
     const tile = material.tile ?? DEFAULT_TILE;
-    const n = [0, 1, 0];
-    const cell2 = cell * cell;
-    const emit = (a, b, c, depth) => {
-      // Split the longest edge until every edge is under the cell size.
-      const e = [
-        [(a.x - b.x) ** 2 + (a.z - b.z) ** 2, a, b, c],
-        [(b.x - c.x) ** 2 + (b.z - c.z) ** 2, b, c, a],
-        [(c.x - a.x) ** 2 + (c.z - a.z) ** 2, c, a, b],
-      ];
-      e.sort((p, q) => q[0] - p[0]);
-      if (depth < 6 && e[0][0] > cell2) {
-        const [, p, q, r] = e[0];
-        const m = { x: (p.x + q.x) / 2, z: (p.z + q.z) / 2 };
-        emit(p, m, r, depth + 1);
-        emit(m, q, r, depth + 1);
-        return;
-      }
-      const vid = (p) => this.vertex(p.x, y, p.z,
-        (p.x + (opts.uOff || 0)) / tile, (p.z + (opts.vOff || 0)) / tile,
-        material.layer, n[0], n[1], n[2], opts.light);
-      const ia = vid(a), ib = vid(b), ic = vid(c);
-      this.tri(ia, ic, ib);
+    const clip = MeshBuilder._clip.clipPolyHalfplane;
+    const uOff = opts.uOff || 0, vOff = opts.vOff || 0;
+
+    const emitConvex = (pts) => {
+      if (!pts || pts.length < 3) return;
+      const idx = pts.map((p) => this.vertex(p.x, y, p.z,
+        (p.x + uOff) / tile, (p.z + vOff) / tile,
+        material.layer, 0, 1, 0, opts.light));
+      for (let i = 1; i < idx.length - 1; i++) this.tri(idx[0], idx[i + 1], idx[i]);
     };
-    for (const t of triangulate(poly)) emit(t[0], t[1], t[2], 0);
+
+    for (const t of triangulate(poly)) {
+      const tri = [t[0], t[1], t[2]];
+      let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+      for (const p of tri) {
+        if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x;
+        if (p.z < minZ) minZ = p.z; if (p.z > maxZ) maxZ = p.z;
+      }
+      if (maxX - minX <= cell && maxZ - minZ <= cell) { emitConvex(tri); continue; }
+      const gx0 = Math.floor(minX / cell) * cell;
+      const gz0 = Math.floor(minZ / cell) * cell;
+      for (let gx = gx0; gx < maxX; gx += cell) {
+        // Column: keep gx <= x <= gx+cell.
+        let col = clip(tri, gx, 0, 0, -1);
+        if (col) col = clip(col, gx + cell, 0, 0, 1);
+        if (!col) continue;
+        for (let gz = gz0; gz < maxZ; gz += cell) {
+          // Cell: keep gz <= z <= gz+cell.
+          let piece = clip(col, 0, gz, 1, 0);
+          if (piece) piece = clip(piece, 0, gz + cell, -1, 0);
+          emitConvex(piece);
+        }
+      }
+    }
     return this;
   }
 

@@ -16,8 +16,8 @@ import { drawHUD } from './hud.js';
 import * as P from '../world/props.js';
 
 const PRESETS = {
-  authentic: { internalHeight: 240, snapDiv: 2.4, affine: 0.85, dither: 1.0, scanline: 0.10, grain: 0.030 },
-  soft: { internalHeight: 360, snapDiv: 3.2, affine: 0.55, dither: 0.7, scanline: 0.05, grain: 0.02 },
+  authentic: { internalHeight: 240, snapDiv: 2.4, affine: 0.55, dither: 1.0, scanline: 0.10, grain: 0.030 },
+  soft: { internalHeight: 360, snapDiv: 3.2, affine: 0.30, dither: 0.7, scanline: 0.05, grain: 0.02 },
   clean: { internalHeight: 540, snapDiv: 8.0, affine: 0.0, dither: 0.35, scanline: 0.0, grain: 0.012 },
 };
 

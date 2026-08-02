@@ -54,6 +54,11 @@ dithered to 15-bit colour with the classic 4×4 Bayer matrix, gets scanlines,
 grain and a vignette, then point-upscales. `F2` cycles three presets so the
 level design can be inspected without the filter.
 
+The HUD is deliberately *not* drawn into that target. It is laid out in a
+virtual space derived from the canvas at an integer scale, so the 5×7 font still
+lands on exact pixel boundaries but the overlay keeps a constant physical size
+whichever render preset is active.
+
 The whole world draws from a single 128×128 texture array — the modern
 equivalent of the PS1's texture-page discipline — with alpha *testing* rather
 than blending, so the pass is order-independent and needs no sorting.
@@ -293,3 +298,19 @@ plausible-looking output while being wrong.
   surfaced once `validate.mjs` started flood-filling from the player's start and
   asserting that the room behind each front door could be reached. That test now
   runs on every seed.
+* Both horizontal input axes were inverted. The camera basis is right-handed
+  with +Z forward and +Y up, which puts screen-right at world −X; the look code
+  added the mouse delta to yaw and the strafe code used the negated right
+  vector, so mouse-right looked left and D strafed left. They were consistent
+  with *each other*, which is exactly why it went unnoticed for so long. There
+  is now a headless assertion in `smoke.mjs` that injects a rightward mouse
+  delta and a D keypress and checks both project positively onto the camera's
+  right vector.
+* Ground surfaces were subdivided by bisecting the longest edge, which bounds
+  edge length but not aspect ratio. The resulting slivers made affine mapping
+  smear grass into long streaks. Ground is now grid-clipped per triangle, which
+  bounds both, and walkable surfaces use 1.5 m cells because affine error scales
+  with the depth ratio across a polygon and that is worst underfoot.
+* Traffic was scattered at random positions along each road strip with no
+  spacing test, so vehicles routinely spawned inside one another. They are now
+  placed into discrete slots and rejected against every vehicle already parked.
