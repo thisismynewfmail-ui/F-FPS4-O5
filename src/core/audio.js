@@ -7,6 +7,8 @@
 // the era: early consoles synthesised far more than they streamed.
 // ---------------------------------------------------------------------------
 
+import { rightOfYaw } from './math.js';
+
 export class Audio {
   constructor() {
     this.ctx = null;
@@ -49,8 +51,11 @@ export class Audio {
     const dist = Math.hypot(dx, dy, dz);
     if (dist > maxDist) return null;
     const gain = Math.pow(1 - dist / maxDist, 1.6);
-    // Project onto the listener's right vector for panning.
-    const rx = Math.cos(L.yaw), rz = -Math.sin(L.yaw);
+    // Project onto the listener's right vector for panning. Screen-right is
+    // (-cos yaw, sin yaw) — see mat4View — so a source that appears on the
+    // right of the screen pans right.
+    const r = rightOfYaw(L.yaw);
+    const rx = r.x, rz = r.z;
     const pan = dist > 0.01 ? Math.max(-1, Math.min(1, (dx * rx + dz * rz) / dist)) : 0;
     return { gain, pan, dist };
   }

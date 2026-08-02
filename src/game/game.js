@@ -169,11 +169,6 @@ export class Game {
     const input = this.input;
 
     if (input.justPressed('F3')) this.showDebug = !this.showDebug;
-    if (input.justPressed('F4')) {
-      input.mirrorX = !input.mirrorX;
-      try { localStorage.setItem('ashgrove.mirrorX', input.mirrorX ? '1' : '0'); } catch { /* private mode */ }
-      this.toast(`HORIZONTAL AXIS: ${input.mirrorX ? 'MIRRORED' : 'NORMAL'}`, [0.7, 0.9, 1]);
-    }
     if (input.justPressed('F2')) {
       const order = ['authentic', 'soft', 'clean'];
       const next = order[(order.indexOf(this.presetName) + 1) % order.length];

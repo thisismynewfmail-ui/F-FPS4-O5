@@ -24,6 +24,25 @@ export function angleDelta(a, b) {
   return d;
 }
 
+/**
+ * Where the bearing `ang` sits relative to a camera looking along `viewYaw`,
+ * in the screen's sense: POSITIVE is to the player's right, in radians.
+ *
+ * This is the negation of angleDelta and that is the whole point. Yaw grows
+ * from +Z toward +X, but the camera basis puts screen-right at (-cos yaw,
+ * sin yaw) — see mat4View — so a bearing at a *larger* yaw than the player's
+ * is on their LEFT. Anything that turns a world bearing into a left/right cue
+ * (compass, damage arrows, stereo pan) goes through here rather than
+ * re-deriving the sign and getting it backwards.
+ */
+export function bearingRight(viewYaw, ang) { return -angleDelta(viewYaw, ang); }
+
+/**
+ * Screen-right in world terms for a camera at `yaw`, on the ground plane.
+ * Matches the `right` basis vector mat4View builds. Returns {x, z}.
+ */
+export function rightOfYaw(yaw) { return { x: -Math.cos(yaw), z: Math.sin(yaw) }; }
+
 /** Frame-rate independent exponential approach. */
 export const damp = (a, b, lambda, dt) => lerp(a, b, 1 - Math.exp(-lambda * dt));
 

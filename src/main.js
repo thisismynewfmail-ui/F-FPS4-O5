@@ -8,7 +8,7 @@ import { Audio } from './core/audio.js';
 import { Game } from './game/game.js';
 
 // Bumped whenever input handling changes, so a stale cached copy is obvious.
-export const BUILD = 'ashgrove-2026-08-02-d';
+export const BUILD = 'ashgrove-2026-08-02-e';
 
 const canvas = document.getElementById('view');
 const loadingEl = document.getElementById('loading');
@@ -39,9 +39,12 @@ async function boot() {
   } catch (e) { fail(e); return; }
 
   input = new Input(canvas);
-  // Horizontal mirror: URL wins for a one-off, otherwise the saved preference.
+  // Horizontal mirror is a URL-only escape hatch, like inverty. It used to be a
+  // key you could hit by accident and a saved preference, which meant a single
+  // stray F4 left both horizontal axes inverted in every later session with
+  // nothing on screen to say why. Drop any such leftover on the way past.
   if (params.has('mirrorx')) input.mirrorX = params.get('mirrorx') !== '0';
-  else { try { input.mirrorX = localStorage.getItem('ashgrove.mirrorX') === '1'; } catch { /* private mode */ } }
+  try { localStorage.removeItem('ashgrove.mirrorX'); } catch { /* private mode */ }
   if (params.has('inverty')) input.invertY = params.get('inverty') !== '0';
   if (params.has('sens')) input.sensitivity = Number(params.get('sens')) || input.sensitivity;
   audio = new Audio();

@@ -211,6 +211,47 @@ if (ok) {
     `mirrorX flips it to ${axes.mirrored}px ${mirrorOk ? 'ok' : 'BROKEN'}`);
   if (!lookOk || !mirrorOk) logs.push('[fatal] horizontal look axis check failed');
 
+  // --- the cues that read a world bearing back to the player ---------------
+  // Fixing the controls is only half of it: the compass, the damage arrows and
+  // the stereo pan all answer "which side is that on", and each of them had the
+  // sense backwards at some point. Reference is the projected position in the
+  // framebuffer's own clip space, so nothing here can agree with itself.
+  const cues = await page.evaluate(async () => {
+    const g = window.__game;
+    const { compassFrac } = await import('/src/game/hud.js');
+    const frame = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    const out = [];
+    const lm = g.world.landmarks[0];
+    if (!lm) return out;
+    const bearing = Math.atan2(lm.x - g.player.x, lm.z - g.player.z);
+    for (const off of [0.35, -0.35]) {
+      // Put the landmark a fixed angle off the centre of the view, either side.
+      g.player.yaw = bearing + off;
+      await frame();
+      const m = g.renderer.viewProj;
+      const w = m[3] * lm.x + m[7] * lm.y + m[11] * lm.z + m[15];
+      const ndcX = (m[0] * lm.x + m[4] * lm.y + m[8] * lm.z + m[12]) / w;
+      const pan = g.audio.spatial(lm.x, lm.y, lm.z, 1e9).pan;
+      out.push({
+        off, w,
+        screen: Math.sign(ndcX),                                       // truth
+        compass: Math.sign(compassFrac(g.player.yaw, bearing) - 0.5),  // the HUD's own mapping
+        pan: Math.sign(pan),
+      });
+    }
+    return out;
+  });
+  let cuesOk = cues.length > 0;
+  for (const c of cues) {
+    const side = c.screen > 0 ? 'RIGHT' : 'LEFT';
+    const ok = c.w > 0 && c.compass === c.screen && c.pan === c.screen;
+    if (!ok) cuesOk = false;
+    console.log(`cues: landmark renders ${side} of centre -> compass ` +
+      `${c.compass === c.screen ? 'agrees' : 'DISAGREES'}, stereo pan ` +
+      `${c.pan === c.screen ? 'agrees' : 'DISAGREES'}`);
+  }
+  if (!cuesOk) logs.push('[fatal] compass / damage / audio disagree with the rendered image');
+
   const info = await page.evaluate(() => {
     const g = window.__game;
     return {

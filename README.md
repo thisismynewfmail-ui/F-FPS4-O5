@@ -57,7 +57,6 @@ wobble and affine warping if you want to look at the level design directly.
 | `E`                | Take the highlighted item                         |
 | `F`                | Flashlight (battery drains while lit)             |
 | `F2`               | Cycle render preset                               |
-| `F4`               | Mirror horizontal look + strafe (persists)        |
 | `F3`               | Performance overlay                               |
 | `Esc`              | Release the cursor                                |
 
