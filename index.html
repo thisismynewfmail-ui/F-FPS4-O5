@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Cache-Control" content="no-store">
 <title>ASHGROVE — survival</title>
 <style>
   :root { color-scheme: dark; }
@@ -40,6 +41,7 @@
   #start .cta:hover { background: #1a1d1e; }
   .keys { font-size: 11px; color: #7b817d; line-height: 1.9; letter-spacing: 0.06em; max-width: 560px; }
   .keys b { color: #b9ae8b; font-weight: 600; }
+  .build { font-size: 10px; color: #4d524e; letter-spacing: 0.12em; }
   #error {
     display: none; position: fixed; inset: 0; z-index: 20; padding: 28px;
     background: #14060a; color: #ffb3a7; font-size: 12px; white-space: pre-wrap;
@@ -64,8 +66,10 @@
   <div class="keys">
     <b>WASD</b> move &nbsp; <b>SHIFT</b> sprint &nbsp; <b>CTRL</b> crouch &nbsp; <b>SPACE</b> jump<br>
     <b>LMB</b> fire &nbsp; <b>RMB</b> aim (rifle) &nbsp; <b>R</b> reload &nbsp; <b>1–5 / wheel</b> weapons<br>
-    <b>E</b> take &nbsp; <b>F</b> lamp &nbsp; <b>F2</b> render mode &nbsp; <b>F3</b> stats &nbsp; <b>ESC</b> release cursor
+    <b>E</b> take &nbsp; <b>F</b> lamp &nbsp; <b>F2</b> render mode &nbsp; <b>F3</b> stats &nbsp; <b>ESC</b> release cursor<br>
+    <b>F4</b> mirror horizontal look + strafe (if they feel reversed)
   </div>
+  <div class="build">build <span id="build">-</span></div>
 </div>
 
 <pre id="error"></pre>

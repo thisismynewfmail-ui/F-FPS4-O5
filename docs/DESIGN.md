@@ -302,10 +302,21 @@ plausible-looking output while being wrong.
   with +Z forward and +Y up, which puts screen-right at world −X; the look code
   added the mouse delta to yaw and the strafe code used the negated right
   vector, so mouse-right looked left and D strafed left. They were consistent
-  with *each other*, which is exactly why it went unnoticed for so long. There
-  is now a headless assertion in `smoke.mjs` that injects a rightward mouse
-  delta and a D keypress and checks both project positively onto the camera's
-  right vector.
+  with *each other*, which is exactly why it went unnoticed for so long.
+
+  The first regression test written for this was worthless: it compared yaw
+  against the same right-vector formula the movement code uses, so if the
+  assumption had been wrong the test would have cheerfully confirmed the bug.
+  The check now cross-correlates the actual framebuffer before and after an
+  input and asserts the scene slides the correct way — it measures what the
+  player sees rather than what the code believes. `tools/diag-axis.mjs` does the
+  same thing standalone and prints the direction in words.
+
+  Note for anyone chasing a repeat of this: browsers cache ES modules
+  aggressively. `index.html` carries a build stamp that is printed to the
+  console and shown on the start screen; if it does not match the newest commit,
+  the copy in the browser is stale. `F4` mirrors both horizontal axes at
+  runtime and persists the choice, which is worth having regardless.
 * Ground surfaces were subdivided by bisecting the longest edge, which bounds
   edge length but not aspect ratio. The resulting slivers made affine mapping
   smear grass into long streaks. Ground is now grid-clipped per triangle, which

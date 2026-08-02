@@ -23,6 +23,11 @@ python3 -m http.server 8080
 
 Then open <http://localhost:8080/>. Requires WebGL2.
 
+The start screen and the browser console both print a build stamp. Browsers
+cache ES modules aggressively, so if behaviour does not match the newest commit,
+check the stamp and hard-reload (`Ctrl`/`Cmd`+`Shift`+`R`). `npm start` serves
+with caching disabled; `python3 -m http.server` does not.
+
 Query parameters:
 
 | Parameter    | Values                          | Effect                                  |
@@ -30,6 +35,9 @@ Query parameters:
 | `seed`       | any integer                     | Regenerates the entire town             |
 | `preset`     | `authentic` `soft` `clean`      | How hard the PS1 filter is applied      |
 | `difficulty` | float, default `1`              | Scales wave size and damage             |
+| `mirrorx`    | `1` / `0`                       | Mirror horizontal look + strafe         |
+| `inverty`    | `1` / `0`                       | Invert vertical look                    |
+| `sens`       | float, default `0.0022`         | Mouse sensitivity                       |
 
 `?seed=88888` is a notably larger town; `?preset=clean` disables the vertex
 wobble and affine warping if you want to look at the level design directly.
@@ -49,6 +57,7 @@ wobble and affine warping if you want to look at the level design directly.
 | `E`                | Take the highlighted item                         |
 | `F`                | Flashlight (battery drains while lit)             |
 | `F2`               | Cycle render preset                               |
+| `F4`               | Mirror horizontal look + strafe (persists)        |
 | `F3`               | Performance overlay                               |
 | `Esc`              | Release the cursor                                |
 

@@ -7,6 +7,9 @@ import { Input } from './core/input.js';
 import { Audio } from './core/audio.js';
 import { Game } from './game/game.js';
 
+// Bumped whenever input handling changes, so a stale cached copy is obvious.
+export const BUILD = 'ashgrove-2026-08-02-d';
+
 const canvas = document.getElementById('view');
 const loadingEl = document.getElementById('loading');
 const barEl = document.getElementById('bar');
@@ -26,15 +29,25 @@ async function boot() {
   const seed = Number(params.get('seed')) || 20250802;
   const preset = params.get('preset') || 'authentic';
 
+  console.log(`[build] ${BUILD}  (if this is not the newest build you are running a cached copy — hard-reload with Ctrl+Shift+R)`);
+  const stamp = document.getElementById('build');
+  if (stamp) stamp.textContent = BUILD;
+
   let renderer, input, audio, game;
   try {
     renderer = new Renderer(canvas, { internalHeight: 240 });
   } catch (e) { fail(e); return; }
 
   input = new Input(canvas);
+  // Horizontal mirror: URL wins for a one-off, otherwise the saved preference.
+  if (params.has('mirrorx')) input.mirrorX = params.get('mirrorx') !== '0';
+  else { try { input.mirrorX = localStorage.getItem('ashgrove.mirrorX') === '1'; } catch { /* private mode */ } }
+  if (params.has('inverty')) input.invertY = params.get('inverty') !== '0';
+  if (params.has('sens')) input.sensitivity = Number(params.get('sens')) || input.sensitivity;
   audio = new Audio();
   game = new Game(renderer, input, audio, { seed, preset, difficulty: Number(params.get('difficulty')) || 1 });
   window.__game = game;
+  window.__build = BUILD;
 
   try {
     await game.load((label, frac) => {

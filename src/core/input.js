@@ -13,6 +13,9 @@ export class Input {
     this.locked = false;
     this.sensitivity = 0.0022;
     this.invertY = false;
+    // Mirrors the horizontal look axis AND strafe together, since a player who
+    // perceives one as reversed perceives both. Toggled with F4, persisted.
+    this.mirrorX = false;
     this.onLockChange = null;
 
     this._onKeyDown = (e) => {

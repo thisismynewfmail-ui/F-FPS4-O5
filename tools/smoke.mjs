@@ -141,38 +141,75 @@ if (ok) {
     await page.screenshot({ path: `${OUT}/${name}.png` });
   }
 
-  // --- axis regression checks --------------------------------------------
-  // Both of these were shipped inverted once. The camera basis puts
-  // screen-right at world (-cos yaw, sin yaw); looking right and strafing right
-  // must both move along that vector.
+  // --- axis regression check, grounded in rendered pixels -----------------
+  // An earlier version of this test compared yaw against the same right-vector
+  // formula the movement code uses, which is circular: if the assumption is
+  // wrong the test confirms the bug. This one cross-correlates the actual
+  // framebuffer before and after an input, so it measures what the player sees.
   const axes = await page.evaluate(async () => {
     const g = window.__game;
-    const right = () => ({ x: -Math.cos(g.player.yaw), z: Math.sin(g.player.yaw) });
-    const fwd = () => ({ x: Math.sin(g.player.yaw), z: Math.cos(g.player.yaw) });
+    g.horde.clear(); g.items.length = 0; g.particles.length = 0;
+    g.player.dead = false; g.player.pitch = 0; g.player.hurtFlash = 0;
+    const c = document.getElementById('view');
+    const tmp = document.createElement('canvas');
+    tmp.width = c.width; tmp.height = c.height;
+    const tctx = tmp.getContext('2d');
+    const frame = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
 
-    // Look: inject a rightward mouse delta and see which way forward swings.
-    g.player.dead = false;
-    const r0 = right(), f0 = fwd();
-    g.input.locked = true;
-    g.input.mouse.dx = 200; g.input.mouse.dy = 0;
-    g.player.update(0.016, g.input, g.world.collision, null);
-    g.input.locked = false;
-    const f1 = fwd();
-    const lookDot = (f1.x - f0.x) * r0.x + (f1.z - f0.z) * r0.z;
+    const profile = () => {
+      tctx.drawImage(c, 0, 0);
+      const d = tctx.getImageData(0, 0, c.width, c.height).data;
+      const y0 = Math.floor(c.height * 0.30), y1 = Math.floor(c.height * 0.62);
+      const p = new Float64Array(c.width);
+      for (let x = 0; x < c.width; x++) {
+        let sum = 0;
+        for (let y = y0; y < y1; y++) {
+          const i = (y * c.width + x) * 4;
+          sum += d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114;
+        }
+        p[x] = sum / (y1 - y0);
+      }
+      return p;
+    };
+    const bestShift = (a, b) => {
+      const W = a.length, max = Math.floor(W * 0.3);
+      let bestS = 0, bestErr = Infinity;
+      for (let sh = -max; sh <= max; sh++) {
+        let err = 0, n = 0;
+        for (let x = Math.max(0, -sh); x < Math.min(W, W - sh); x += 2) {
+          const d0 = a[x] - b[x + sh]; err += d0 * d0; n++;
+        }
+        if (n < W * 0.3) continue;
+        err /= n;
+        if (err < bestErr) { bestErr = err; bestS = sh; }
+      }
+      return bestS;
+    };
 
-    // Strafe: hold D for a few frames and see which way the player slides.
-    const sx = g.player.x, sz = g.player.z;
-    const r1 = right();
-    g.input.keys.add('KeyD');
-    for (let i = 0; i < 12; i++) g.player.update(0.016, g.input, g.world.collision, null);
-    g.input.keys.delete('KeyD');
-    const strafeDot = (g.player.x - sx) * r1.x + (g.player.z - sz) * r1.z;
-    return { lookDot, strafeDot };
+    const measure = async (mirror) => {
+      g.input.mirrorX = mirror;
+      g.player.yaw = 0.7;
+      await frame();
+      const a = profile();
+      g.input.locked = true;
+      g.input.mouse.dx = 140; g.input.mouse.dy = 0;
+      g.update(0.016);
+      g.input.locked = false;
+      await frame();
+      return bestShift(a, profile());
+    };
+    const normal = await measure(false);
+    const mirrored = await measure(true);
+    g.input.mirrorX = false;
+    return { normal, mirrored };
   });
-  const axisOk = axes.lookDot > 0 && axes.strafeDot > 0;
-  console.log(`axes: look ${axes.lookDot > 0 ? 'ok' : 'INVERTED'} (${axes.lookDot.toFixed(4)}), ` +
-    `strafe ${axes.strafeDot > 0 ? 'ok' : 'INVERTED'} (${axes.strafeDot.toFixed(3)})`);
-  if (!axisOk) logs.push('[fatal] look or strafe axis is inverted');
+  // Mouse right => camera turns right => scene content slides LEFT (negative).
+  const lookOk = axes.normal < 0;
+  const mirrorOk = axes.mirrored > 0;
+  console.log(`look: mouse-right slides scene ${axes.normal}px ` +
+    `(${lookOk ? 'camera turns RIGHT, correct' : 'camera turns LEFT, INVERTED'}); ` +
+    `mirrorX flips it to ${axes.mirrored}px ${mirrorOk ? 'ok' : 'BROKEN'}`);
+  if (!lookOk || !mirrorOk) logs.push('[fatal] horizontal look axis check failed');
 
   const info = await page.evaluate(() => {
     const g = window.__game;

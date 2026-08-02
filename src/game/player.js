@@ -107,7 +107,7 @@ export class Player {
       // Yaw increases toward world +X, but the camera basis puts screen-right
       // at world -X (right = forward x up, with +Z forward and +Y up), so
       // moving the mouse right must *decrease* yaw.
-      this.yaw -= input.mouse.dx * input.sensitivity;
+      this.yaw -= input.mouse.dx * input.sensitivity * (input.mirrorX ? -1 : 1);
       this.pitch -= input.mouse.dy * input.sensitivity * (input.invertY ? -1 : 1);
       this.pitch = clamp(this.pitch, -1.53, 1.53);
       if (this.yaw > Math.PI) this.yaw -= TAU;
@@ -153,8 +153,9 @@ export class Player {
     // Camera-relative. forward = (sin yaw, cos yaw); the view basis puts
     // screen-right at (-cos yaw, sin yaw), so D strafes along that.
     const sy = Math.sin(this.yaw), cy = Math.cos(this.yaw);
-    const wishX = sy * fwd - cy * strafe;
-    const wishZ = cy * fwd + sy * strafe;
+    const st = input.mirrorX ? -strafe : strafe;
+    const wishX = sy * fwd - cy * st;
+    const wishZ = cy * fwd + sy * st;
 
     // --- accelerate ---------------------------------------------------------
     const accel = this.grounded ? 46 : 8;
