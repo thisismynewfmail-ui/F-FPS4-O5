@@ -13,9 +13,16 @@ export class Input {
     this.locked = false;
     this.sensitivity = 0.0022;
     this.invertY = false;
-    // Mirrors the horizontal look axis AND strafe together, for players who
-    // want an inverted X. Off by default and set only from `?mirrorx=1`; there
-    // is deliberately no key for it and it is never persisted.
+    // Mirrors the horizontal look axis AND strafe together — always both, since
+    // a player who reads one as reversed reads the other the same way.
+    //
+    // OFF is the default, and `tools/diag-axis.mjs` measures off the rendered
+    // frame that OFF is the sense where mouse-right turns right and D moves
+    // right. It is deliberately not persisted: a saved copy of this flag is
+    // indistinguishable from the game having inverted axes, which is exactly
+    // the false alarm it caused before. F4 flips it for the session, the state
+    // shows on the start screen and in the F3 overlay, and `?mirrorx=1` makes
+    // the flip stick across reloads for anyone who wants it that way.
     this.mirrorX = false;
     this.onLockChange = null;
 

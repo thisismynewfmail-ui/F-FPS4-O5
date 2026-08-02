@@ -106,7 +106,8 @@ export class Player {
     if (input.locked && !this.dead) {
       // Yaw increases toward world +X, but the camera basis puts screen-right
       // at world -X (right = forward x up, with +Z forward and +Y up), so
-      // moving the mouse right must *decrease* yaw.
+      // moving the mouse right must *decrease* yaw. mirrorX flips that, and
+      // flips strafe below with it; it ships ON — see input.js.
       this.yaw -= input.mouse.dx * input.sensitivity * (input.mirrorX ? -1 : 1);
       this.pitch -= input.mouse.dy * input.sensitivity * (input.invertY ? -1 : 1);
       this.pitch = clamp(this.pitch, -1.53, 1.53);

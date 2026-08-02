@@ -8,7 +8,7 @@ import { Audio } from './core/audio.js';
 import { Game } from './game/game.js';
 
 // Bumped whenever input handling changes, so a stale cached copy is obvious.
-export const BUILD = 'ashgrove-2026-08-02-e';
+export const BUILD = 'ashgrove-2026-08-02-f';
 
 const canvas = document.getElementById('view');
 const loadingEl = document.getElementById('loading');
@@ -39,12 +39,15 @@ async function boot() {
   } catch (e) { fail(e); return; }
 
   input = new Input(canvas);
-  // Horizontal mirror is a URL-only escape hatch, like inverty. It used to be a
-  // key you could hit by accident and a saved preference, which meant a single
-  // stray F4 left both horizontal axes inverted in every later session with
-  // nothing on screen to say why. Drop any such leftover on the way past.
+  // Horizontal sense comes from the URL or nowhere. An older build saved this
+  // to localStorage from an F4 press, so one stray keypress left look *and*
+  // strafe inverted in every later session with nothing on screen to say why —
+  // indistinguishable from the game itself being broken. Any leftover is
+  // deleted here, and the sense in force is printed on the start screen.
   if (params.has('mirrorx')) input.mirrorX = params.get('mirrorx') !== '0';
   try { localStorage.removeItem('ashgrove.mirrorX'); } catch { /* private mode */ }
+  const axisEl = document.getElementById('axis');
+  if (axisEl) axisEl.textContent = input.mirrorX ? 'MIRRORED (?mirrorx=1)' : 'normal';
   if (params.has('inverty')) input.invertY = params.get('inverty') !== '0';
   if (params.has('sens')) input.sensitivity = Number(params.get('sens')) || input.sensitivity;
   audio = new Audio();

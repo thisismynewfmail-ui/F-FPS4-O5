@@ -245,6 +245,7 @@ function drawDebug(r, game, s) {
     `pos ${game.player.x.toFixed(1)} ${game.player.y.toFixed(1)} ${game.player.z.toFixed(1)}`,
     `alive ${game.horde.liveCount}  stress ${game.director.stress.toFixed(2)}  phase ${game.director.phase}`,
     `world ${(game.world.stats.tris / 1000).toFixed(0)}k tris  ${game.world.stats.chunks} chunks  ${game.world.stats.buildings} buildings`,
+    `horizontal axis ${game.input.mirrorX ? 'MIRRORED' : 'normal'} (F4)  yaw ${game.player.yaw.toFixed(2)}`,
   ];
   let y = 4 * s;
   const x = 4 * s;

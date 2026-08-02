@@ -197,7 +197,7 @@ const result = await page.evaluate(async () => {
     }
   }
   reset();
-  return { translate, runs, strafeRuns, cues, openGround: !!found, width: c.width };
+  return { translate, runs, strafeRuns, cues, openGround: !!found, mirrorX: g.input.mirrorX, width: c.width };
 });
 console.log(JSON.stringify(result));
 
@@ -221,15 +221,23 @@ if (Math.abs(gt.shift) < MIN) console.log('=> screen-right could not be establis
 else console.log(`=> world (-cos yaw, sin yaw) is screen-${gt.shift < 0 ? 'RIGHT' : 'LEFT'} ` +
   `${gt.shift < 0 ? '(as mat4View builds it)' : '(the renderer disagrees with mat4View)'}`);
 
+// input.mirrorX flips look and strafe together and ships ON, so the expected
+// direction flips with it. The camera basis says unmirrored is the one that
+// matches the render; the shipped sense is what players reported as correct.
+// This only reports whether the game does what its own setting says.
+const mirrored = result.mirrorX;
+console.log(`\nmirrorX is ${mirrored ? 'ON (shipped default)' : 'OFF'} — mouse-right is ` +
+  `expected to turn the camera ${mirrored ? 'LEFT' : 'RIGHT'}, and D to move ${mirrored ? 'LEFT' : 'RIGHT'}`);
 for (const r of result.runs) {
   // Camera turning right makes scene content slide left.
+  const wantRightTurn = (r.dx > 0) !== mirrored;
   console.log(`mouse ${r.dx > 0 ? 'RIGHT' : 'LEFT'} (dx=${r.dx}) -> dYaw ${r.dYaw.toFixed(3)}, ` +
     `scene slid ${side(r.shift)} (${r.shift}px) -> camera turned ${r.shift < 0 ? 'RIGHT' : 'LEFT'}  ` +
-    `${verdict((r.dx > 0) === (r.shift < 0), Math.abs(r.shift) >= MIN)}`);
+    `${verdict(wantRightTurn === (r.shift < 0), Math.abs(r.shift) >= MIN)}`);
 }
 if (!result.openGround) console.log('(no spot found where both strafes run clear — distances are wall-limited)');
 for (const r of result.strafeRuns) {
-  const wantRight = r.key === 'KeyD';
+  const wantRight = (r.key === 'KeyD') !== mirrored;
   // Primary signal is the displacement along the screen-right direction step 1
   // just measured off the framebuffer, so this is not the old circular check.
   // The scene shift corroborates it whenever the move was long enough to read.

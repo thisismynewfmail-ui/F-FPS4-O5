@@ -35,7 +35,7 @@ Query parameters:
 | `seed`       | any integer                     | Regenerates the entire town             |
 | `preset`     | `authentic` `soft` `clean`      | How hard the PS1 filter is applied      |
 | `difficulty` | float, default `1`              | Scales wave size and damage             |
-| `mirrorx`    | `1` / `0`                       | Mirror horizontal look + strafe         |
+| `mirrorx`    | `1` / `0`                       | Mirror horizontal look + strafe (off)   |
 | `inverty`    | `1` / `0`                       | Invert vertical look                    |
 | `sens`       | float, default `0.0022`         | Mouse sensitivity                       |
 
@@ -57,7 +57,8 @@ wobble and affine warping if you want to look at the level design directly.
 | `E`                | Take the highlighted item                         |
 | `F`                | Flashlight (battery drains while lit)             |
 | `F2`               | Cycle render preset                               |
-| `F3`               | Performance overlay                               |
+| `F3`               | Performance overlay (shows the horizontal sense)  |
+| `F4`               | Flip horizontal look + strafe for this session    |
 | `Esc`              | Release the cursor                                |
 
 ## Playing

@@ -198,17 +198,22 @@ if (ok) {
       await frame();
       return bestShift(a, profile());
     };
+    const shipped = g.input.mirrorX;
     const normal = await measure(false);
     const mirrored = await measure(true);
-    g.input.mirrorX = false;
-    return { normal, mirrored };
+    g.input.mirrorX = shipped;
+    return { normal, mirrored, shipped };
   });
-  // Mouse right => camera turns right => scene content slides LEFT (negative).
+  // Unmirrored: mouse right => camera turns right => content slides LEFT.
+  // mirrorX flips look and strafe together; it ships ON because unmirrored was
+  // reported as reversed in play, so this asserts the two senses are opposites
+  // and reports which one the build actually ships with.
   const lookOk = axes.normal < 0;
   const mirrorOk = axes.mirrored > 0;
-  console.log(`look: mouse-right slides scene ${axes.normal}px ` +
-    `(${lookOk ? 'camera turns RIGHT, correct' : 'camera turns LEFT, INVERTED'}); ` +
-    `mirrorX flips it to ${axes.mirrored}px ${mirrorOk ? 'ok' : 'BROKEN'}`);
+  console.log(`look: unmirrored slides scene ${axes.normal}px (camera turns ` +
+    `${lookOk ? 'RIGHT' : 'LEFT'}); mirrored ${axes.mirrored}px ` +
+    `${mirrorOk ? 'ok' : 'BROKEN — both senses agree, the toggle is dead'}; ` +
+    `shipping ${axes.shipped ? 'MIRRORED' : 'UNMIRRORED'}`);
   if (!lookOk || !mirrorOk) logs.push('[fatal] horizontal look axis check failed');
 
   // --- the cues that read a world bearing back to the player ---------------

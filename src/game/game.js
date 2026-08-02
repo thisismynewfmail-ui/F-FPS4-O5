@@ -169,6 +169,12 @@ export class Game {
     const input = this.input;
 
     if (input.justPressed('F3')) this.showDebug = !this.showDebug;
+    if (input.justPressed('F4')) {
+      // Session only — see input.js for why this is never saved.
+      input.mirrorX = !input.mirrorX;
+      this.toast(`HORIZONTAL LOOK + STRAFE: ${input.mirrorX ? 'MIRRORED' : 'NORMAL'}` +
+        `${input.mirrorX ? '  (ADD ?MIRRORX=1 TO KEEP IT)' : ''}`, [0.7, 0.9, 1]);
+    }
     if (input.justPressed('F2')) {
       const order = ['authentic', 'soft', 'clean'];
       const next = order[(order.indexOf(this.presetName) + 1) % order.length];

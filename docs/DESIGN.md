@@ -331,8 +331,12 @@ plausible-looking output while being wrong.
   `localStorage`. One stray keypress therefore left look *and* strafe inverted
   in every later session, with a stale saved flag and no indication why — the
   original bug's exact symptoms, reintroduced by the thing meant to work around
-  it. The mirror is now `?mirrorx=1` only: no key, no persistence, and any
-  leftover key is deleted at boot.
+  it. A saved horizontal sense is indistinguishable from a broken one, so it is
+  no longer saved: `F4` flips it for the session, `?mirrorx=1` makes a flip
+  stick, any leftover `localStorage` key is deleted at boot, and the sense in
+  force is printed on the start screen and in the `F3` overlay. If the axes are
+  ever reported as reversed again, that readout and the build stamp say in one
+  glance whether it is the game or the copy in the browser.
 * Ground surfaces were subdivided by bisecting the longest edge, which bounds
   edge length but not aspect ratio. The resulting slivers made affine mapping
   smear grass into long streaks. Ground is now grid-clipped per triangle, which
