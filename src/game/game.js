@@ -78,7 +78,7 @@ export class Game {
 
     await report('Mapping routes', 0.93);
     this.nav = new NavGrid(this.cfg.bounds);
-    this.nav.build(this.world.collision);
+    this.nav.build(this.world.collision, this.world.doorways);
 
     await report('Loading in', 0.97);
     this.setupSession();
@@ -228,7 +228,7 @@ export class Game {
     // --- AI ---------------------------------------------------------------
     this.navTimer = (this.navTimer || 0) - dt;
     if (this.navTimer <= 0) {
-      this.navTimer = 0.28;
+      this.navTimer = 0.32;
       this.nav.update(this.player.x, this.player.z);
     }
     this.horde.update(dt, this.player, this.world.collision, this.nav, this.audio);

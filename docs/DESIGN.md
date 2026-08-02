@@ -238,11 +238,20 @@ axis-aligned boxes were never an option; segments handle rotation, doorways
 (which are simply gaps in the segment list), multi-storey interiors and rooftops
 with one representation.
 
-**Navigation** is a town-wide flow field recomputed a few times a second from
-the player's position. A hundred infected each get a correct route through
-winding streets and open doorways for the cost of one array lookup, with local
-steering for the last couple of metres so they shoulder past each other in
-doorways instead of walking in single file.
+**Navigation** is a flow field recomputed a few times a second from the player's
+position. A hundred infected each get a correct route through winding streets
+and open doorways for the cost of one array lookup, with local steering for the
+last couple of metres so they shoulder past each other in doorways instead of
+walking in single file.
+
+Two things make it work. The grid is 1 m, finer than a doorway, and every
+doorway is registered by the generator and carved back open after wall
+rasterisation — rasterising walls alone reliably seals a 1 m gap, because the
+segments either side each block their own cell. And the flood is bounded to
+about 130 m of walking distance: a full-map solve costs ~13 ms, which is a
+visible hitch several times a second, while anything further away is not
+chasing the player yet and falls back to direct steering. Bounded, it costs
+~2.5 ms.
 
 **The director** is modelled on Left 4 Dead rather than a fixed spawn table. It
 tracks proximity, crowd size and player health into a stress value and decides
@@ -277,3 +286,10 @@ plausible-looking output while being wrong.
   which on a concave subject emits zero-width bridge edges; ear-clipping those
   produced long slivers that smeared ground textures into wedges across whole
   blocks. It now triangulates first and refines each triangle.
+* The navigation grid was coarser than a doorway, so **every** building interior
+  in the town was unreachable: the horde could never come out of a building and
+  could never follow the player into one. Nothing visual showed this — the
+  buildings looked fine, the infected pathed fine in the street — and it only
+  surfaced once `validate.mjs` started flood-filling from the player's start and
+  asserting that the room behind each front door could be reached. That test now
+  runs on every seed.

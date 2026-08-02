@@ -292,6 +292,14 @@ export function furnishFloor(plan, ctx) {
     for (const g of gaps) {
       if (axis === 'x') mb.box(at - t / 2, y + 2.06, g[0], at + t / 2, ceilH, g[1], pw, { skip: 'top bottom' });
       else mb.box(g[0], y + 2.06, at - t / 2, g[1], ceilH, at + t / 2, pw, { skip: 'top bottom' });
+      // Register the opening so the nav grid keeps a route through it.
+      if (ctx.doorways && ctx.storey === 0) {
+        const c = (g[0] + g[1]) / 2;
+        for (const off of [-0.7, 0, 0.7]) {
+          const wp = axis === 'x' ? mb.worldPoint(at + off, 0, c) : mb.worldPoint(c, 0, at + off);
+          ctx.doorways.push({ x: wp.x, z: wp.z, r: 0.7 });
+        }
+      }
     }
   };
 

@@ -115,5 +115,10 @@ node tools/smoke.mjs /tmp/shots  # boot headless Chromium, screenshot the game
 
 `validate.mjs` is the useful one: it asserts the scarcity rules (exactly one
 library, at most two churches, three to five filling stations, dozens of
-houses), that every building has a front door, that the collision world is
+houses), that every building has a front door, that the room behind that door is
+actually reachable on foot from the player's start, that the collision world is
 populated, and that the triangle budget holds. All eight reference seeds pass.
+
+That reachability check earned its keep immediately — it found that the
+navigation grid was coarser than a doorway, which had silently sealed every
+interior in the town.

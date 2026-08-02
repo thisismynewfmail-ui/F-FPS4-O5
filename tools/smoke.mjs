@@ -118,6 +118,9 @@ if (ok) {
   for (const [name, fn] of shots) {
     await page.evaluate(`window.__drive(${fn.toString()})`);
     await page.waitForTimeout(name === '03-horde' ? 1400 : 450);
+    // Clear the damage vignette so screenshots show the world's real colour.
+    await page.evaluate(() => { window.__game.player.hurtFlash = 0; });
+    await page.waitForTimeout(120);
     await page.screenshot({ path: `${OUT}/${name}.png` });
   }
 

@@ -259,8 +259,8 @@ export class Arsenal {
     const pump = this.pumpT > 0 ? Math.sin((1 - this.pumpT / (d.rate * 0.75)) * Math.PI) : 0;
 
     const zoom = this.zoomT;
-    const baseX = lerp(0.145, 0.0, zoom) * SCREEN_RIGHT;
-    const baseY = lerp(-0.135, -0.075, zoom);
+    const baseX = lerp(0.165, 0.0, zoom) * SCREEN_RIGHT;
+    const baseY = lerp(-0.170, -0.078, zoom);
     const baseZ = lerp(0.60, 0.70, zoom);
 
     const px = baseX + bx + this.sway.x * SCREEN_RIGHT;

@@ -8,7 +8,7 @@
 // instead of walking in single file.
 // ---------------------------------------------------------------------------
 
-const RES = 1.6;         // metres per cell
+const RES = 1.0;         // metres per cell; must be finer than a doorway
 const BLOCKED = 65535;
 
 export class NavGrid {
@@ -19,7 +19,9 @@ export class NavGrid {
     this.h = Math.ceil((bounds.maxZ - bounds.minZ) / RES);
     this.blocked = new Uint8Array(this.w * this.h);
     this.cost = new Uint16Array(this.w * this.h);
-    this.queue = new Int32Array(this.w * this.h);
+    // Dijkstra re-pushes cells when a cheaper route is found, so the ring
+    // buffer needs slack beyond one entry per cell.
+    this.queue = new Int32Array(this.w * this.h * 2);
     this.res = RES;
     this.dirty = true;
   }
@@ -31,9 +33,14 @@ export class NavGrid {
 
   /**
    * Rasterise the collision world. Only ground-level obstructions matter: a
-   * wall that starts above head height (a bridge, an overhang) is walkable.
+   * wall that starts above head height is walkable underneath.
+   *
+   * `doorways` must be supplied: a doorway is a ~1 m gap between two wall
+   * segments, and rasterising walls alone reliably seals it because the
+   * segments on either side each block their own cell. Carving the openings
+   * open afterwards is what makes building interiors reachable at all.
    */
-  build(collision) {
+  build(collision, doorways) {
     this.blocked.fill(0);
     for (const s of collision.segments) {
       if (s.y1 < 0.9 || s.y0 > 1.6) continue;
@@ -59,11 +66,32 @@ export class NavGrid {
       }
     }
     // Soft ring cells (2) are passable but expensive; hard cells (1) are not.
+    // Now punch the openings back open, and mark them permanently so nothing
+    // can re-block them.
+    if (doorways) {
+      for (const d of doorways) {
+        const r = Math.max(1, Math.ceil((d.r ?? 0.7) / RES));
+        const cx = this.cellX(d.x), cz = this.cellZ(d.z);
+        for (let dz = -r; dz <= r; dz++) {
+          for (let dx = -r; dx <= r; dx++) {
+            if (dx * dx + dz * dz > r * r + 1) continue;
+            const nx = cx + dx, nz = cz + dz;
+            if (this.inside(nx, nz)) this.blocked[this.idx(nx, nz)] = 0;
+          }
+        }
+      }
+    }
     this.dirty = false;
   }
 
-  /** Dijkstra outward from a goal, filling `cost` in cells. */
-  update(goalX, goalZ) {
+  /**
+   * Dijkstra outward from a goal, filling `cost` in cells.
+   *
+   * `maxCost` bounds the flood. Without it a full-map solve costs ~13 ms, which
+   * is a visible hitch several times a second; anything further away than this
+   * is not chasing the player yet anyway and falls back to direct steering.
+   */
+  update(goalX, goalZ, maxCost = 1300) {
     const gx = this.cellX(goalX), gz = this.cellZ(goalZ);
     this.cost.fill(BLOCKED);
     if (!this.inside(gx, gz)) return;
@@ -96,6 +124,7 @@ export class NavGrid {
       const i = q[head++];
       if (head >= q.length) head = 0;
       const c = this.cost[i];
+      if (c >= maxCost) continue;
       const cx = i % w, cz = (i - cx) / w;
       for (let d = 0; d < 8; d++) {
         const dx = NEI[d * 2], dz = NEI[d * 2 + 1];

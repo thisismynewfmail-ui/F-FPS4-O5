@@ -146,6 +146,7 @@ export class World {
     this.collision = new CollisionWorld(cfg.bounds);
     this.spawns = [];
     this.loot = [];
+    this.doorways = [];
     this.lights = [];
     this.buildings = [];
     this.landmarks = [];
@@ -340,7 +341,7 @@ export class World {
         const ctx = {
           mb, lib: this.lib, rng, kit, cfg: this.cfg,
           collision: this.collision, spawns: this.spawns, loot: this.loot,
-          lights: this.lights, env: this.env, world: this,
+          lights: this.lights, env: this.env, world: this, doorways: this.doorways,
         };
         const rec = this.buildOne(lot, ctx);
         if (rec) this.buildings.push(rec);
@@ -860,6 +861,7 @@ export class World {
     this.stats.spawns = this.spawns.length;
     this.stats.loot = this.loot.length;
     this.stats.collision = this.collision.stats;
+    this.stats.doorways = this.doorways.length;
   }
 
   /** Hand finished chunks to the renderer. */

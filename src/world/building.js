@@ -909,6 +909,27 @@ function registerBuildingCollision(record, ctx, openingsByFace, main, innerWallM
   const { collision, cfg } = ctx;
   const fp = record.lot.footprint;
   const toW = fp.toWorld;
+  const doorways = ctx.doorways;
+
+  // Every doorway is registered for the navigation grid. Wall rasterisation
+  // alone closes a 1 m gap, so these have to be carved back open explicitly.
+  const noteDoor = (lx, lz, w) => {
+    if (!doorways) return;
+    const p = toW(lx, lz);
+    doorways.push({ x: p.x, z: p.z, r: Math.max(0.8, w * 0.6) });
+  };
+  const face = { front: (u) => [u, 0], back: (u) => [u, main.d], left: () => null, right: () => null };
+  for (const name of ['front', 'back']) {
+    for (const o of openingsByFace[name]) {
+      if (!o.isDoor) continue;
+      const u = (o.u0 + o.u1) / 2;
+      const l = face[name](u);
+      // Three points through the opening so the corridor of open cells is
+      // continuous from outside to inside.
+      const inward = name === 'front' ? 1 : -1;
+      for (const off of [-1.1, 0, 1.3]) noteDoor(l[0], l[1] + off * inward, o.u1 - o.u0);
+    }
+  }
   const top = record.plinth + record.storeyHeight * record.storeys;
 
   const addWall = (lx0, lz0, lx1, lz1, y0, y1, gaps) => {
