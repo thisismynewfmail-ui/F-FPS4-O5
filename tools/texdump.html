@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>texture dump</title>
+<style>
+  body { margin: 0; background: #111; color: #ccc; font: 11px monospace; }
+  .grid { display: flex; flex-wrap: wrap; gap: 8px; padding: 8px; }
+  figure { margin: 0; }
+  canvas { image-rendering: pixelated; display: block; border: 1px solid #333; }
+  figcaption { padding: 2px 0; }
+</style>
+</head>
+<body>
+<div class="grid" id="grid"></div>
+<script type="module">
+// Renders named materials at 2x, plus a 4x4-tiled view so seams and
+// large-scale structure are visible.  ?names=grass,dirt,road_asphalt
+import { buildLibrary } from '../src/art/materials.js';
+
+const names = (new URLSearchParams(location.search).get('names')
+  || 'grass,grass_dead,dirt,gravel,sidewalk,road_asphalt,plaza_stone,mud').split(',');
+
+const lib = buildLibrary(20250802);
+for (const t of lib.tasks) t.run();
+
+const grid = document.getElementById('grid');
+for (const name of names) {
+  const m = lib.mats[name.trim()];
+  const fig = document.createElement('figure');
+  if (!m) {
+    fig.textContent = `${name}: MISSING`;
+    grid.appendChild(fig);
+    continue;
+  }
+  const px = lib.layers[m.layer];
+  const src = document.createElement('canvas');
+  src.width = src.height = 128;
+  src.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(px), 128, 128), 0, 0);
+
+  // 2x single tile, then 4x4 tiled at 1x to show repetition and seams.
+  const one = document.createElement('canvas');
+  one.width = one.height = 256;
+  const c1 = one.getContext('2d');
+  c1.imageSmoothingEnabled = false;
+  c1.drawImage(src, 0, 0, 256, 256);
+
+  const tiled = document.createElement('canvas');
+  tiled.width = tiled.height = 256;
+  const c2 = tiled.getContext('2d');
+  c2.imageSmoothingEnabled = false;
+  for (let y = 0; y < 4; y++) for (let x = 0; x < 4; x++) c2.drawImage(src, x * 64, y * 64, 64, 64);
+
+  const wrap = document.createElement('div');
+  wrap.style.display = 'flex';
+  wrap.style.gap = '4px';
+  wrap.append(one, tiled);
+  fig.appendChild(wrap);
+  const cap = document.createElement('figcaption');
+  cap.textContent = `${name}  tile=${m.tile}m  layer=${m.layer}`;
+  fig.appendChild(cap);
+  grid.appendChild(fig);
+}
+window.__done = true;
+</script>
+</body>
+</html>

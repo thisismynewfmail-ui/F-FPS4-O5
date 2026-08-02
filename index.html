@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Cache-Control" content="no-store">
+<title>ASHGROVE — survival</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; height: 100%; overflow: hidden;
+    background: #07080a; color: #cfd3cf;
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  #view {
+    display: block; width: 100vw; height: 100vh;
+    image-rendering: pixelated; image-rendering: crisp-edges;
+    cursor: crosshair; background: #07080a;
+  }
+  #loading, #start {
+    position: fixed; inset: 0; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 14px;
+    background: radial-gradient(circle at 50% 45%, #16181a 0%, #06070880 70%, #050607 100%);
+    z-index: 10; text-align: center; padding: 24px;
+  }
+  #loading.done { pointer-events: none; }
+  h1 {
+    margin: 0; font-size: clamp(28px, 6vw, 62px); letter-spacing: 0.42em;
+    font-weight: 700; color: #d8cba6; text-shadow: 0 0 18px #00000090;
+  }
+  .sub { font-size: 12px; letter-spacing: 0.30em; color: #6d7370; margin-top: -4px; }
+  #track { width: min(420px, 70vw); height: 6px; background: #1b1e20; border: 1px solid #2b2f31; }
+  #bar { height: 100%; width: 0%; background: linear-gradient(90deg, #6b5f3a, #d8cba6); transition: width .12s linear; }
+  #label { font-size: 11px; color: #8a908c; letter-spacing: 0.14em; min-height: 14px; }
+  #start { display: none; cursor: pointer; }
+  #start .cta {
+    border: 1px solid #4a4f4a; padding: 12px 28px; letter-spacing: 0.28em;
+    font-size: 13px; color: #d8cba6; background: #10121366;
+  }
+  #start .cta:hover { background: #1a1d1e; }
+  .keys { font-size: 11px; color: #7b817d; line-height: 1.9; letter-spacing: 0.06em; max-width: 560px; }
+  .keys b { color: #b9ae8b; font-weight: 600; }
+  .build { font-size: 10px; color: #4d524e; letter-spacing: 0.12em; }
+  #error {
+    display: none; position: fixed; inset: 0; z-index: 20; padding: 28px;
+    background: #14060a; color: #ffb3a7; font-size: 12px; white-space: pre-wrap;
+    overflow: auto; line-height: 1.55;
+  }
+</style>
+</head>
+<body>
+<canvas id="view"></canvas>
+
+<div id="loading">
+  <h1>ASHGROVE</h1>
+  <div class="sub">POPULATION 2,140 &middot; SIGNAL LOST</div>
+  <div id="track"><div id="bar"></div></div>
+  <div id="label">starting up</div>
+</div>
+
+<div id="start">
+  <h1>ASHGROVE</h1>
+  <div class="sub">HOLD OUT UNTIL MORNING</div>
+  <div class="cta">CLICK TO ENTER</div>
+  <div class="keys">
+    <b>WASD</b> move &nbsp; <b>SHIFT</b> sprint &nbsp; <b>CTRL</b> crouch &nbsp; <b>SPACE</b> jump<br>
+    <b>LMB</b> fire &nbsp; <b>RMB</b> aim (rifle) &nbsp; <b>R</b> reload &nbsp; <b>1–5 / wheel</b> weapons<br>
+    <b>E</b> take &nbsp; <b>F</b> lamp &nbsp; <b>F2</b> render mode &nbsp; <b>F3</b> stats &nbsp; <b>ESC</b> release cursor<br>
+    <b>F4</b> mirror horizontal look + strafe (if they feel reversed)
+  </div>
+  <div class="build">build <span id="build">-</span></div>
+</div>
+
+<pre id="error"></pre>
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>

@@ -1,0 +1,15 @@
+{
+  "name": "ashgrove",
+  "version": "1.0.0",
+  "private": true,
+  "description": "PS1-styled wave survival FPS in a procedurally generated town. No build step, no dependencies.",
+  "type": "module",
+  "scripts": {
+    "start": "npx --yes http-server . -p 8080 -c-1 -o",
+    "serve": "npx --yes http-server . -p 8080 -c-1",
+    "plan": "node tools/plan-preview.mjs",
+    "build-world": "node tools/build-world.mjs",
+    "validate": "node tools/validate.mjs 8",
+    "smoke": "node tools/smoke.mjs /tmp/shots"
+  }
+}
