@@ -170,9 +170,10 @@ export class Game {
 
     if (input.justPressed('F3')) this.showDebug = !this.showDebug;
     if (input.justPressed('F4')) {
+      // Session only — see input.js for why this is never saved.
       input.mirrorX = !input.mirrorX;
-      try { localStorage.setItem('ashgrove.mirrorX', input.mirrorX ? '1' : '0'); } catch { /* private mode */ }
-      this.toast(`HORIZONTAL AXIS: ${input.mirrorX ? 'MIRRORED' : 'NORMAL'}`, [0.7, 0.9, 1]);
+      this.toast(`HORIZONTAL LOOK + STRAFE: ${input.mirrorX ? 'MIRRORED' : 'NORMAL'}` +
+        `${input.mirrorX ? '  (ADD ?MIRRORX=1 TO KEEP IT)' : ''}`, [0.7, 0.9, 1]);
     }
     if (input.justPressed('F2')) {
       const order = ['authentic', 'soft', 'clean'];

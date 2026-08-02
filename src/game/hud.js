@@ -8,7 +8,7 @@
 // a matter of looking at the skyline.
 // ---------------------------------------------------------------------------
 
-import { clamp, clamp01, angleDelta, dist2D } from '../core/math.js';
+import { clamp, clamp01, bearingRight, dist2D } from '../core/math.js';
 
 const AMBER = [1.0, 0.76, 0.30, 1];
 const AMBER_DIM = [0.85, 0.62, 0.22, 0.75];
@@ -150,7 +150,8 @@ export function drawHUD(r, game, dt) {
   // --- damage direction indicators ----------------------------------------
   const cx = W / 2, cy = H / 2;
   for (const d of player.damageDirs) {
-    const rel = angleDelta(player.yaw, d.ang);
+    // Positive rel = the hit came from your right, so it draws right of centre.
+    const rel = bearingRight(player.yaw, d.ang);
     const a = clamp01(d.t / 1.4);
     const dist = 46 * s;
     const px = cx + Math.sin(rel) * dist;
@@ -187,6 +188,22 @@ export function drawHUD(r, game, dt) {
   r.uiFlush();
 }
 
+const COMPASS_FOV = 1.6;   // radians of bearing shown across the strip
+
+/**
+ * Where a bearing sits across the compass strip as a 0..1 fraction, or null
+ * when it is off the ends. Exported so the axis tests can compare it against
+ * the same landmark's position in the framebuffer: a mark on the wrong side of
+ * the centre tick is exactly the kind of thing nobody notices while playing.
+ */
+export function compassFrac(viewYaw, ang, fov = COMPASS_FOV) {
+  // Positive = to the player's right, which is right of the centre tick, so the
+  // strip sweeps the same way the world does when you turn.
+  const rel = bearingRight(viewYaw, ang);
+  if (Math.abs(rel) > fov / 2) return null;
+  return 0.5 + rel / fov;
+}
+
 function drawCompass(r, game, W, s) {
   const player = game.player;
   const cw = 140 * s;
@@ -194,11 +211,10 @@ function drawCompass(r, game, W, s) {
   const y = 4 * s;
   r.uiRect(x0, y, cw, 11 * s, [0.05, 0.05, 0.05, 0.35]);
 
-  const fov = 1.6;   // radians of bearing shown across the strip
   const mark = (ang, label, col) => {
-    const rel = angleDelta(player.yaw, ang);
-    if (Math.abs(rel) > fov / 2) return;
-    const px = Math.round(x0 + cw / 2 + (rel / fov) * cw);
+    const f = compassFrac(player.yaw, ang);
+    if (f === null) return;
+    const px = Math.round(x0 + f * cw);
     r.uiRect(px, y, Math.max(1, s), 4 * s, col);
     if (label) {
       const w = r.textWidth(label, s * 0.85);
@@ -206,7 +222,11 @@ function drawCompass(r, game, W, s) {
     }
   };
 
-  for (const [ang, label] of [[0, 'N'], [Math.PI / 2, 'E'], [Math.PI, 'S'], [-Math.PI / 2, 'W']]) {
+  // Bearing b points along (sin b, cos b), and screen-right at yaw 0 is -X, so
+  // the bearing on your right when facing north is -PI/2: that one is east, and
+  // world +X is west. Ordered this way the rose reads N-E-S-W as you turn right,
+  // like a real compass, instead of running backwards.
+  for (const [ang, label] of [[0, 'N'], [-Math.PI / 2, 'E'], [Math.PI, 'S'], [Math.PI / 2, 'W']]) {
     mark(ang, label, [0.7, 0.72, 0.68, 0.75]);
   }
   for (const lm of game.world.landmarks) {
@@ -225,6 +245,7 @@ function drawDebug(r, game, s) {
     `pos ${game.player.x.toFixed(1)} ${game.player.y.toFixed(1)} ${game.player.z.toFixed(1)}`,
     `alive ${game.horde.liveCount}  stress ${game.director.stress.toFixed(2)}  phase ${game.director.phase}`,
     `world ${(game.world.stats.tris / 1000).toFixed(0)}k tris  ${game.world.stats.chunks} chunks  ${game.world.stats.buildings} buildings`,
+    `horizontal axis ${game.input.mirrorX ? 'MIRRORED' : 'normal'} (F4)  yaw ${game.player.yaw.toFixed(2)}`,
   ];
   let y = 4 * s;
   const x = 4 * s;

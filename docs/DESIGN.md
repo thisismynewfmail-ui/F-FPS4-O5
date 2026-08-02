@@ -315,8 +315,28 @@ plausible-looking output while being wrong.
   Note for anyone chasing a repeat of this: browsers cache ES modules
   aggressively. `index.html` carries a build stamp that is printed to the
   console and shown on the start screen; if it does not match the newest commit,
-  the copy in the browser is stale. `F4` mirrors both horizontal axes at
-  runtime and persists the choice, which is worth having regardless.
+  the copy in the browser is stale.
+* That fix corrected the *controls* and stopped there. Three other things turn a
+  world bearing into a left/right cue, and all three had been written against
+  the old, wrong sense of "right", so they kept telling the player their
+  horizontal axis was backwards after the axis itself was fixed:
+  the compass strip (landmarks and cardinals swept the opposite way to the
+  world, and the rose read N-W-S-E as you turned right), the damage direction
+  indicators (a hit from your right drew an arrow on your left), and the stereo
+  pan in `audio.js`, which projected onto `(cos yaw, -sin yaw)` — the listener's
+  *left*. `bearingRight` and `rightOfYaw` in `math.js` now hold that conversion
+  in one commented place, and `smoke.mjs` asserts that a landmark rendered on
+  the right of the framebuffer is right of the compass centre and pans right.
+* `F4` used to mirror both horizontal axes and persist the choice in
+  `localStorage`. One stray keypress therefore left look *and* strafe inverted
+  in every later session, with a stale saved flag and no indication why — the
+  original bug's exact symptoms, reintroduced by the thing meant to work around
+  it. A saved horizontal sense is indistinguishable from a broken one, so it is
+  no longer saved: `F4` flips it for the session, `?mirrorx=1` makes a flip
+  stick, any leftover `localStorage` key is deleted at boot, and the sense in
+  force is printed on the start screen and in the `F3` overlay. If the axes are
+  ever reported as reversed again, that readout and the build stamp say in one
+  glance whether it is the game or the copy in the browser.
 * Ground surfaces were subdivided by bisecting the longest edge, which bounds
   edge length but not aspect ratio. The resulting slivers made affine mapping
   smear grass into long streaks. Ground is now grid-clipped per triangle, which
