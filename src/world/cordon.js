@@ -430,6 +430,9 @@ function buildGate(world, gate, style, rng) {
   // ever added for the crossing itself, which is impassable while the leaf is
   // up because the leaf is what the collision segment above represents.
   if (gate.kind === 'bascule') {
+    // Half-extents along the gate line, and the perpendicular that runs with
+    // the road through it.
+    const hx = Math.cos(yaw) * full * 0.5, hz = -Math.sin(yaw) * full * 0.5;
     const nx = -Math.sin(yaw), nz = -Math.cos(yaw);
     const d = 9;
     world.collision.addFloor([

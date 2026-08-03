@@ -29,6 +29,12 @@ import { clamp, clamp01, valueNoise, smoothstep } from '../core/math.js';
  * fraction of the map half-size; the cordon that closes it stands on that
  * line. `kills` is the milestone that opens the cordon and lets you into the
  * NEXT sector out.
+ *
+ * The radii are set so each sector is meaningfully larger than the last while
+ * the OUTERMOST one still reaches inside the map edges. Pushed any further out
+ * it degenerates into four corner triangles behind the rail fence and the
+ * river, and the largest investment in the game — seven thousand kills — opens
+ * almost nothing, which is the worst possible shape for a progression curve.
  */
 export const DISTRICTS = [
   {
@@ -44,7 +50,7 @@ export const DISTRICTS = [
     id: 1,
     name: 'MARKET ROW',
     subtitle: 'the commercial core',
-    radius: 0.475,
+    radius: 0.415,
     kills: 1200,
     cordon: 'police',
     palette: 'core',
@@ -53,7 +59,7 @@ export const DISTRICTS = [
     id: 2,
     name: 'BEACON TERRACES',
     subtitle: 'civic quarter and the hill streets',
-    radius: 0.695,
+    radius: 0.585,
     kills: 2500,
     cordon: 'hoarding',
     palette: 'mixed',
@@ -62,7 +68,7 @@ export const DISTRICTS = [
     id: 3,
     name: 'THE WARRENS',
     subtitle: 'housing, allotments, the hollow',
-    radius: 0.885,
+    radius: 0.740,
     kills: 4500,
     cordon: 'concrete',
     palette: 'residential',
@@ -71,7 +77,7 @@ export const DISTRICTS = [
     id: 4,
     name: 'MILLGATE',
     subtitle: 'the works, the yard, the rail head',
-    radius: 1.10,
+    radius: 0.851,
     kills: 7000,
     cordon: 'berm',
     palette: 'industrial',

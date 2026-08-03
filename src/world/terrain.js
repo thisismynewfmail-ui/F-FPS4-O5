@@ -126,13 +126,18 @@ export class Terrain {
     const settle = smoothstep(clamp01(1 - dc / (this.cfg.coreRadius * 1.55)));
     y = lerp(y, y * 0.42 + lf.coreDatum * 0.58, settle * 0.74);
 
-    // Open country beyond the last cordon was never graded by anybody, so it
-    // keeps its own shape: long, low ridges and hollows at field scale. This
-    // is also what stops the outermost sector — which is mostly farmland and
-    // has no landform of its own — from being the one flat place on the map.
+    // Field-scale roll, coming in as the graded town gives way to country.
+    // Long, low ridges and hollows at a wavelength of a few hundred metres.
+    //
+    // It ramps in from just outside the core rather than only at the map edge
+    // because the sectors are concentric BANDS: the outer ones are only twenty
+    // or thirty metres deep, so whatever variation they have has to come from
+    // something that changes over their circumference rather than across their
+    // width. Without this, a band can quite easily land entirely on one flank
+    // of one hill and be the one flat sector in the game.
     const half = this.cfg.mapSize / 2;
-    const outer = smoothstep(clamp01((dc - half * 0.80) / (half * 0.45)));
-    y += (fbm(x * 0.0021 + 41, z * 0.0021 + 17, 3, s ^ 0x3311) - 0.5) * 17 * outer;
+    const outer = smoothstep(clamp01((dc - half * 0.30) / (half * 0.55)));
+    y += (fbm(x * 0.0026 + 41, z * 0.0026 + 17, 3, s ^ 0x3311) - 0.5) * 19 * outer;
 
     return y;
   }

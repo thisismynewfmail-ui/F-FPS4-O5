@@ -550,6 +550,24 @@ plausible-looking output while being wrong.
   aggressively. `index.html` carries a build stamp that is printed to the
   console and shown on the start screen; if it does not match the newest commit,
   the copy in the browser is stale.
+
+  The replacement test then had a subtler version of the same disease. It
+  cross-correlated the framebuffer before and after a 17-degree turn to find how
+  far the scene had slid, and reported the best shift it found *unconditionally*
+  — so on a low-contrast frame it reported noise, and a sign drawn from noise is
+  right half the time. It had been passing on a correlation coefficient of 0.21
+  and a shift of 114 px where the geometry predicted 152, which is not a
+  measurement, and it started failing the moment the world had a sky in it,
+  because a band of cloud is smooth and has nothing to lock onto.
+
+  It now projects a fixed world point through the matrix the frame was actually
+  drawn with, which is exact and gives the same answer looking at a wall as it
+  does looking down a street: −0.0604 in NDC unmirrored, +0.0604 mirrored, on
+  every seed and on both sides of this change. The pixel correlation is kept as
+  corroboration over a small turn, where modelling the frame as a rigid
+  translation is valid, and it is now allowed to say "inconclusive" — which is
+  the whole point, because a test that cannot fail honestly cannot pass
+  honestly either.
 * That fix corrected the *controls* and stopped there. Three other things turn a
   world bearing into a left/right cue, and all three had been written against
   the old, wrong sense of "right", so they kept telling the player their

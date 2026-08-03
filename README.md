@@ -158,6 +158,7 @@ which makes it directly testable.
 node tools/validate.mjs 8        # build 8 towns, assert the brief's hard rules
 node tools/build-world.mjs 42    # build one town, print geometry budgets
 node tools/plan-preview.mjs 42 plan.svg   # render the street plan as SVG
+node tools/progression.mjs 42    # walk all five unlocks, check what opens
 node tools/smoke.mjs /tmp/shots  # boot headless Chromium, play, screenshot
 node tools/tour.mjs /tmp/tour 42 # screenshot every gate, landmark and secret
 ```
@@ -180,6 +181,24 @@ the reachability check found that the navigation grid was coarser than a
 doorway, which had silently sealed every interior in the town, and the overlap
 check found forty-four pairs of buildings standing inside each other.
 
-`tour.mjs` is the other half of the story: it drives the camera to each cordon
-gate in both states, to every landmark and to every secret, because a random
-walk almost never happens to stand in front of the thing you just changed.
+`progression.mjs` is the other assertion that matters, because the progression
+is the one system whose failures are invisible in play: a cordon that leaks
+looks exactly like a town you happened to wander further into, and a sector
+that never opens looks exactly like one you have not found the way into yet. It
+opens each cordon in turn and prints how much of every sector can be walked to
+at each stage:
+
+```
+kills     open      reachable ground per sector (%)          loot available
+     0     0       91    0    0    0    0    0        299
+   500     1       93   87    0    0    0    0        760
+  1200     2       92   87   84    0    0    0       1140
+  2500     3       89   88   81   81    0    0       1496
+  4500     4       89   91   84   84   73    0       1696
+  7000     5       93   87   82   80   73   67       1917
+```
+
+`tour.mjs` is the visual half: it drives the camera to each cordon gate in both
+states, square-on to the busiest facades, and to every landmark and secret,
+because a random walk almost never happens to stand in front of the thing you
+just changed.

@@ -159,62 +159,141 @@ if (ok) {
     const profile = () => {
       tctx.drawImage(c, 0, 0);
       const d = tctx.getImageData(0, 0, c.width, c.height).data;
-      const y0 = Math.floor(c.height * 0.30), y1 = Math.floor(c.height * 0.62);
-      const p = new Float64Array(c.width);
+      // A band low enough to be looking at the town rather than at the sky.
+      // Once the world had a horizon, a band straddling it was mostly cloud —
+      // which is smooth, so the correlation below had nothing to lock onto and
+      // wandered to whatever shift happened to align two flat regions.
+      const y0 = Math.floor(c.height * 0.42), y1 = Math.floor(c.height * 0.78);
+      const lum = new Float64Array(c.width);
       for (let x = 0; x < c.width; x++) {
         let sum = 0;
         for (let y = y0; y < y1; y++) {
           const i = (y * c.width + x) * 4;
           sum += d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114;
         }
-        p[x] = sum / (y1 - y0);
+        lum[x] = sum / (y1 - y0);
       }
+      // Correlate the DERIVATIVE, not the brightness: what physically moves
+      // when the camera turns is the edges. A brightness profile also carries
+      // a big smooth left-to-right gradient from the lighting, and that
+      // gradient dominates the sum of squares and biases it toward zero.
+      const p = new Float64Array(c.width);
+      for (let x = 1; x < c.width - 1; x++) p[x] = lum[x + 1] - lum[x - 1];
       return p;
     };
+    /**
+     * Normalised cross-correlation peak. Returns the shift and how good the
+     * match was, so the caller can refuse to draw a conclusion from noise —
+     * the previous version returned its best guess unconditionally, and its
+     * best guess on a low-contrast frame was arbitrary.
+     */
     const bestShift = (a, b) => {
       const W = a.length, max = Math.floor(W * 0.3);
-      let bestS = 0, bestErr = Infinity;
+      let bestS = 0, bestR = -Infinity;
       for (let sh = -max; sh <= max; sh++) {
-        let err = 0, n = 0;
-        for (let x = Math.max(0, -sh); x < Math.min(W, W - sh); x += 2) {
-          const d0 = a[x] - b[x + sh]; err += d0 * d0; n++;
+        const lo = Math.max(1, -sh), hi = Math.min(W - 1, W - 1 - sh);
+        if (hi - lo < W * 0.35) continue;
+        let sa = 0, sb = 0, n = 0;
+        for (let x = lo; x < hi; x++) { sa += a[x]; sb += b[x + sh]; n++; }
+        const ma = sa / n, mb = sb / n;
+        let num = 0, da = 0, db = 0;
+        for (let x = lo; x < hi; x++) {
+          const u = a[x] - ma, v = b[x + sh] - mb;
+          num += u * v; da += u * u; db += v * v;
         }
-        if (n < W * 0.3) continue;
-        err /= n;
-        if (err < bestErr) { bestErr = err; bestS = sh; }
+        const r = num / (Math.sqrt(da * db) || 1e-9);
+        if (r > bestR) { bestR = r; bestS = sh; }
       }
-      return bestS;
+      return { shift: bestS, r: bestR };
+    };
+
+    /**
+     * Where a fixed point of the world lands on screen, taken from the matrix
+     * the frame was ACTUALLY drawn with. This is the primary measurement: it
+     * follows the whole chain the player experiences — mouse delta, input,
+     * yaw, view matrix, projection — and it has no correlation noise in it at
+     * all, so it gives the same answer on an empty street and in a fog bank.
+     *
+     * It is not the circular test this file used to contain. That one compared
+     * yaw against the same right-vector formula the movement code uses, so a
+     * wrong assumption confirmed itself. This compares yaw against the matrix
+     * the GPU consumed, which is the thing that was historically wrong.
+     */
+    const ndcOf = (p) => {
+      const m = g.renderer.viewProj;
+      const w = m[3] * p.x + m[7] * p.y + m[11] * p.z + m[15];
+      return { x: (m[0] * p.x + m[4] * p.y + m[8] * p.z + m[12]) / w, w };
     };
 
     const measure = async (mirror) => {
       g.input.mirrorX = mirror;
       g.player.yaw = 0.7;
+      g.player.pitch = 0;
+      // A mark straight ahead and far enough away to be unaffected by the
+      // camera's own bob.
+      const mark = {
+        x: g.player.x + Math.sin(0.7) * 400,
+        y: g.player.eyeY,
+        z: g.player.z + Math.cos(0.7) * 400,
+      };
       await frame();
       const a = profile();
+      const n0 = ndcOf(mark);
       g.input.locked = true;
-      g.input.mouse.dx = 140; g.input.mouse.dy = 0;
+      // A small turn: the pixel corroboration below models the frame as a
+      // rigid translation, and over a large turn it simply is not one.
+      g.input.mouse.dx = 40; g.input.mouse.dy = 0;
+      const before = g.player.yaw;
       g.update(0.016);
       g.input.locked = false;
       await frame();
-      return bestShift(a, profile());
+      const n1 = ndcOf(mark);
+      const res = bestShift(a, profile());
+      res.dyaw = g.player.yaw - before;
+      // Negative = the world moved left on screen = the camera turned right.
+      res.ndc = (n1.x - n0.x) * (n0.w > 0 && n1.w > 0 ? 1 : 0);
+      return res;
     };
     const shipped = g.input.mirrorX;
     const normal = await measure(false);
     const mirrored = await measure(true);
     g.input.mirrorX = shipped;
-    return { normal, mirrored, shipped };
+    // What the pixel shift SHOULD be, from the geometry alone: a yaw change of
+    // `dyaw` moves the scene by that fraction of the horizontal field of view.
+    const fov = 1.48;
+    const hfov = 2 * Math.atan(Math.tan(fov / 2) * (c.width / c.height));
+    const predicted = -(normal.dyaw / hfov) * c.width;
+    return { normal, mirrored, shipped, predicted };
   });
   // Unmirrored: mouse right => camera turns right => content slides LEFT.
   // mirrorX flips look and strafe together; it ships ON because unmirrored was
   // reported as reversed in play, so this asserts the two senses are opposites
   // and reports which one the build actually ships with.
-  const lookOk = axes.normal < 0;
-  const mirrorOk = axes.mirrored > 0;
-  console.log(`look: unmirrored slides scene ${axes.normal}px (camera turns ` +
-    `${lookOk ? 'RIGHT' : 'LEFT'}); mirrored ${axes.mirrored}px ` +
+  // Mouse right must move the world LEFT across the screen, and the mirror
+  // toggle must reverse that. Judged on where a fixed point of the world
+  // projected under the frame's own matrix, which is exact.
+  const lookOk = axes.normal.ndc < -1e-6;
+  const mirrorOk = axes.mirrored.ndc > 1e-6;
+  console.log(`look: unmirrored moves the world ${axes.normal.ndc.toFixed(4)} in NDC ` +
+    `— camera turns ${lookOk ? 'RIGHT' : 'LEFT'}; mirrored ` +
+    `${axes.mirrored.ndc.toFixed(4)} ` +
     `${mirrorOk ? 'ok' : 'BROKEN — both senses agree, the toggle is dead'}; ` +
     `shipping ${axes.shipped ? 'MIRRORED' : 'UNMIRRORED'}`);
   if (!lookOk || !mirrorOk) logs.push('[fatal] horizontal look axis check failed');
+
+  // Corroboration from the framebuffer itself, so the check is not resting
+  // entirely on a matrix the renderer handed us. Only conclusive when the
+  // correlation is actually strong: a low-contrast frame — fog, a blank wall,
+  // sky — gives an arbitrary answer, and reporting one anyway is how the
+  // previous version of this check came to "pass" on r=0.21.
+  const pixOk = axes.normal.shift < 0;
+  const strong = axes.normal.r > 0.55;
+  console.log(`look: framebuffer agrees? ${strong ? (pixOk ? 'yes' : 'NO') : 'inconclusive'} ` +
+    `(shift ${axes.normal.shift}px, predicted ${axes.predicted.toFixed(0)}px, ` +
+    `r=${axes.normal.r.toFixed(2)})`);
+  if (strong && pixOk !== lookOk) {
+    logs.push('[fatal] the rendered frame disagrees with the view matrix about which way the camera turned');
+  }
 
   // --- the cues that read a world bearing back to the player ---------------
   // Fixing the controls is only half of it: the compass, the damage arrows and
