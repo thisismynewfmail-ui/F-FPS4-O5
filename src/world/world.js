@@ -1312,15 +1312,59 @@ export class World {
     // sitting where it stopped. It plays completely differently from the
     // square — no cover, no exits, and everything above you.
     const hl = cfg.landforms.hollow;
-    const floorY = terrain.heightAt(hl.x, hl.z);
     const puddle = this.m('water', 8);
-    store.emit(hl.x, hl.z, (mb) => {
-      mb.env = this.env;
-      const r = hl.radius * 0.28;
-      mb.quadMat([hl.x - r, floorY + 0.25, hl.z + r], [hl.x + r, floorY + 0.25, hl.z + r],
-        [hl.x + r, floorY + 0.25, hl.z - r], [hl.x - r, floorY + 0.25, hl.z - r],
-        puddle, [0, 1, 0], { spanU: r * 2, spanV: r * 2, maxEdge: 6 });
-    });
+    // The water finds its own level and its own shape. A pond is the set of
+    // ground below a waterline, not a square: sample outward on every bearing
+    // and stop where the floor climbs back through it. The result hugs the
+    // contour of the pit, which is the only way a body of water reads as one.
+    const pitFloor = terrain.heightAt(hl.x, hl.z);
+    const pondY = pitFloor + 0.3;
+    const rim = [];
+    for (let i = 0; i < 20; i++) {
+      const a = (i / 20) * TAU;
+      let r = 1.5;
+      while (r < hl.radius * 0.9
+        && terrain.heightAt(hl.x + Math.cos(a) * r, hl.z + Math.sin(a) * r) < pondY) r += 1.5;
+      rim.push({ x: hl.x + Math.cos(a) * r, z: hl.z + Math.sin(a) * r, r, a });
+    }
+    if (rim.some((p) => p.r > 4)) {
+      store.emit(hl.x, hl.z, (mb) => {
+        mb.env = this.env;
+        mb.polyFlatTess(rim.map((p) => ({ x: p.x, z: p.z })), pondY, puddle, 6);
+      });
+    }
+    // Standing water is a hazard, not a swimming pool: a rim of collision so
+    // the pit's one flat piece of ground cannot be crossed straight through.
+    for (let i = 0; i < rim.length; i++) {
+      const a = rim[i], b = rim[(i + 1) % rim.length];
+      if (a.r < 5 || b.r < 5) continue;
+      this.collision.addSegment(a.x, a.z, b.x, b.z, pondY - 3, pondY + 1.5, 'water');
+    }
+    // The shrine goes at the water's edge on the far side from the ramp: dry,
+    // but still down in the pit where you have to walk in to find it. Anchored
+    // to the pond's own rim rather than to a search for high ground — a
+    // shallow flood puts the first dry ground at the top of the bank, and a
+    // shrine up among the houses is not a shrine in the Hollow.
+    const shrineA = hl.rampAngle + Math.PI;
+    let rimR = hl.radius * 0.3;
+    for (const p of rim) {
+      const d = Math.abs(((p.a - shrineA + Math.PI * 3) % TAU) - Math.PI);
+      if (d < 0.35) rimR = p.r;
+    }
+    let shrineR = Math.min(rimR + 3.5, hl.radius * 0.62);
+    // The pit floor is not monotonic — it can rise past the waterline and dip
+    // back — so the position is confirmed against the one thing that actually
+    // matters rather than inferred from the rim.
+    for (let g = 0; g < 12; g++) {
+      const px = hl.x + Math.cos(shrineA) * shrineR, pz = hl.z + Math.sin(shrineA) * shrineR;
+      if (terrain.heightAt(px, pz) > pondY + 0.35) break;
+      shrineR += 2;
+    }
+    this.hollowShrineAt = {
+      x: hl.x + Math.cos(shrineA) * shrineR,
+      z: hl.z + Math.sin(shrineA) * shrineR,
+    };
+    const floorY = pitFloor;
     for (let i = 0; i < 18; i++) {
       const a = rng.range(0, TAU), d = Math.sqrt(rng.next()) * hl.radius * 0.85;
       const x = hl.x + Math.cos(a) * d, z = hl.z + Math.sin(a) * d;

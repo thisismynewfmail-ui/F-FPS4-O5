@@ -212,8 +212,12 @@ function cellarSteps(world, rng) {
 
 function hollowShrine(world, rng) {
   const lf = world.cfg.landforms.hollow;
-  const x = lf.x + Math.cos(lf.rampAngle + Math.PI) * lf.radius * 0.35;
-  const z = lf.z + Math.sin(lf.rampAngle + Math.PI) * lf.radius * 0.35;
+  // On the bench above the waterline — the pit floods, and thirteen stones
+  // under half a metre of standing water are thirteen stones nobody sees.
+  const spot = world.hollowShrineAt
+    || { x: lf.x + Math.cos(lf.rampAngle + Math.PI) * lf.radius * 0.35,
+      z: lf.z + Math.sin(lf.rampAngle + Math.PI) * lf.radius * 0.35 };
+  const x = spot.x, z = spot.z;
   const gy = world.gy(x, z);
   const stone = world.m('rock_dark', 2.0);
   const pale = world.m('prop_porcelain', 0.8);

@@ -94,21 +94,48 @@ await page.evaluate(() => {
 const plan = await page.evaluate(() => window.__plan());
 console.log(`relief ${plan.relief.lo.toFixed(1)} .. ${plan.relief.hi.toFixed(1)} m`);
 
-/** Stand `back` metres from a target, at eye height above the ground there. */
+/**
+ * Stand `back` metres from a target, at eye height above the ground there.
+ *
+ * The bearing is a starting suggestion, not an instruction: a fixed one puts a
+ * building, a cordon or a hillside between the camera and the thing being
+ * photographed often enough that half the shots were of something else. Eight
+ * bearings are tried and the first with a clear line to the target wins, with
+ * the stand-off pulled in if none of them is clear.
+ */
 async function shot(name, tx, tz, back = 16, bearing = 0, pitch = 0) {
   const p = await page.evaluate(([tx, tz, back, bearing, pitch]) => {
     const g = window.__game;
-    const x = tx + Math.sin(bearing) * back;
-    const z = tz + Math.cos(bearing) * back;
-    const gy = g.world.gy(x, z);
-    window.__look(x, gy + 1.6, z, tx, tz, pitch);
-    return { x, z, gy };
+    const place = (b, d) => {
+      const x = tx + Math.sin(b) * d, z = tz + Math.cos(b) * d;
+      return { x, z, gy: g.world.gy(x, z) };
+    };
+    let best = place(bearing, back);
+    let found = false;
+    outer:
+    for (const d of [back, back * 0.65, back * 0.4]) {
+      for (let i = 0; i < 8; i++) {
+        const b = bearing + (i / 8) * Math.PI * 2;
+        const c = place(b, d);
+        const ty = g.world.gy(tx, tz) + 1.4;
+        // Standing in a stockroom that happens to have a clear line out
+        // through a doorway is not a photograph of the thing outside it.
+        if (g.world.insideAnyBuilding(c.x, c.z, 1.2)) continue;
+        if (g.world.collision.lineOfSight(c.x, c.gy + 1.6, c.z, tx, ty, tz)) {
+          best = c; found = true; break outer;
+        }
+      }
+    }
+    best.clear = found;
+    window.__look(best.x, best.gy + 1.6, best.z, tx, tz, pitch);
+    return best;
   }, [tx, tz, back, bearing, pitch]);
   await page.waitForTimeout(420);
   await page.evaluate(() => { window.__game.player.hurtFlash = 0; });
   await page.waitForTimeout(140);
   await page.screenshot({ path: `${OUT}/${name}.png` });
-  console.log(`${name.padEnd(26)} at ${p.x.toFixed(0)},${p.z.toFixed(0)} ground ${p.gy.toFixed(1)}`);
+  console.log(`${name.padEnd(26)} at ${p.x.toFixed(0)},${p.z.toFixed(0)} ` +
+    `ground ${p.gy.toFixed(1)}${p.clear ? '' : '  (no clear view — shot is of whatever is in the way)'}`);
 }
 
 // Facades, straight on, from far enough back to see the whole elevation.
