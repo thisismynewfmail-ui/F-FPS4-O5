@@ -92,6 +92,27 @@ await page.evaluate(() => {
         drop: b.foundDrop, label: b.label,
       }));
   };
+  // Exterior corners, close up. Two wall shells meet on a shared edge here and
+  // a corner board covers the join; if either is out of place it is visible
+  // from nowhere else.
+  window.__corners = (n) => {
+    const w = g.world;
+    const out = [];
+    for (const b of w.buildings) {
+      if (!b.lot.footprint || out.length >= n) continue;
+      const m = b.masses.find((x) => x.kind === 'main');
+      if (!m || m.w < 7) continue;
+      // The front-right corner, and a spot 3.5 m diagonally out from it.
+      const c = b.lot.footprint.toWorld(m.x1, m.z0);
+      const cen = b.lot.footprint.toWorld((m.x0 + m.x1) / 2, (m.z0 + m.z1) / 2);
+      const dx = c.x - cen.x, dz = c.z - cen.z;
+      const l = Math.hypot(dx, dz) || 1;
+      const px = c.x + (dx / l) * 3.5, pz = c.z + (dz / l) * 3.5;
+      if (w.insideAnyBuilding(px, pz, 0.5)) continue;
+      out.push({ cx: c.x, cz: c.z, px, pz, label: b.label, eave: b.baseY + b.eaveY });
+    }
+    return out;
+  };
   window.__plan = () => {
     const w = g.world;
     return {
@@ -150,6 +171,27 @@ async function shot(name, tx, tz, back = 16, bearing = 0, pitch = 0) {
   await page.screenshot({ path: `${OUT}/${name}.png` });
   console.log(`${name.padEnd(26)} at ${p.x.toFixed(0)},${p.z.toFixed(0)} ` +
     `ground ${p.gy.toFixed(1)}${p.clear ? '' : '  (no clear view — shot is of whatever is in the way)'}`);
+}
+
+// Exterior corners, close up, at two heights.
+const corners = await page.evaluate(() => window.__corners(3));
+for (let i = 0; i < corners.length; i++) {
+  const c = corners[i];
+  for (const [tag, aim] of [['low', 0.6], ['mid', 0.5]]) {
+    await page.evaluate(([c, aim]) => {
+      const g = window.__game;
+      const gy = g.world.gy(c.px, c.pz);
+      const ty = gy + (c.eave - gy) * aim;
+      const p = g.player;
+      p.x = c.px; p.z = c.pz; p.y = gy;
+      p.yaw = Math.atan2(c.cx - c.px, c.cz - c.pz);
+      p.pitch = Math.atan2(ty - (gy + 1.6), Math.hypot(c.cx - c.px, c.cz - c.pz));
+      p.vx = p.vy = p.vz = 0; p.hurtFlash = 0;
+    }, [c, aim]);
+    await page.waitForTimeout(400);
+    await page.screenshot({ path: `${OUT}/corner-${i}-${tag}.png` });
+  }
+  console.log(`corner-${i}`.padEnd(26) + ` ${c.label}`);
 }
 
 // The base of a wall on the steepest sites, from across the street and low —
