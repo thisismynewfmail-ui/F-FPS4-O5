@@ -619,6 +619,30 @@ export function buildBuilding(lot, ctx) {
     record.backDoorWorld = fp.toWorld(bu + 0.5, main.d + 0.6);
   }
 
+  // --- resolve the elevation -----------------------------------------------
+  // Windows are placed from the floor plan and the entrance is placed from the
+  // entry room, and neither knows about the other. Where the entry room's
+  // centre sits near a party wall the door lands inside a neighbouring room's
+  // window: `wallShell` cuts the union of the two as one hole, so the wall is
+  // right, but both panels are then drawn into it and the door reads as a red
+  // rectangle sitting on top of the glass.
+  //
+  // A real elevation has a strip of wall between every opening, so that is the
+  // rule. Doors win — a house may lose a window, it may not lose its door.
+  const faceLen = { front: main.w, back: main.w, left: main.d, right: main.d };
+  for (const name of ['front', 'back', 'left', 'right']) {
+    openingsByFace[name] = resolveOpenings(openingsByFace[name], faceLen[name]);
+  }
+  // The door may have been nudged clear of a window, so the record follows it.
+  const doorOpening = openingsByFace.front.find((o) => o.isDoor);
+  if (doorOpening) {
+    record.doorLocal = { x: (doorOpening.u0 + doorOpening.u1) / 2, z: 0 };
+    record.doorWorld = fp.toWorld(record.doorLocal.x, -0.6);
+  }
+  // Kept so `validate.mjs` can assert the elevation stayed resolved.
+  record.openings = openingsByFace;
+  record.faceLen = faceLen;
+
   // --- exterior shell ------------------------------------------------------
   const innerWallMat = lib.m(interiorWallFor(prog.type, rng));
   const faces = [
@@ -731,8 +755,15 @@ export function buildBuilding(lot, ctx) {
   // --- shopfront dressing --------------------------------------------------
   if (commercial && ['shop', 'diner', 'bar', 'hardware', 'pharmacy', 'laundromat', 'bank'].includes(prog.type)) {
     const signMat = lib.m(rng.pick(['sign_shop', 'sign_shop2']) + '');
-    const y = plinth + sh - 0.95;
-    mb.box(0.35, y, -0.34, main.w - 0.35, y + 0.72, -0.16, signMat, { skip: 'bottom' });
+    // The fascia goes above the glazing, not across it. Where the storey is
+    // short and the shopfront is tall, that means the sign gets thinner rather
+    // than the shopfront getting a board nailed over the middle of it.
+    const groundTop = openingsByFace.front
+      .filter((o) => (o.storey ?? 0) === 0 || o.isDoor)
+      .reduce((h, o) => Math.max(h, o.y1), plinth);
+    const y = Math.max(plinth + sh - 0.95, groundTop + 0.10);
+    const band = Math.max(0.30, Math.min(0.72, plinth + sh - 0.12 - y));
+    mb.box(0.35, y, -0.34, main.w - 0.35, y + band, -0.16, signMat, { skip: 'bottom' });
     mb.box(0.30, y - 0.06, -0.40, main.w - 0.30, y, -0.10, M.trimAlt, { skip: 'top' });
     // Awning over the pavement.
     if (rng.chance(0.55)) {
@@ -747,11 +778,28 @@ export function buildBuilding(lot, ctx) {
   }
 
   // --- posted notices and graffiti ----------------------------------------
-  if (rng.chance(0.5)) {
+  // Pinned to a pier, never over glass: a notice sitting across a shop window
+  // is the same clipping mistake as a door across one, in a different colour.
+  if (rng.chance(0.6)) {
     const sm = lib.m(rng.pick(['sign_notice', 'sign_poster']));
-    const px = clamp(doorU + rng.range(-1.6, 1.9), 0.3, main.w - 0.9);
-    mb.quadMat([px, plinth + 1.3, -0.02], [px + 0.55, plinth + 1.3, -0.02],
-      [px + 0.55, plinth + 2.05, -0.02], [px, plinth + 2.05, -0.02], sm, [0, 0, -1], { noTess: true });
+    const nw = 0.55, nh = 0.75, ny = plinth + 1.3;
+    const clear = (px) => !openingsByFace.front.some((o) =>
+      px < o.u1 + 0.06 && o.u0 < px + nw + 0.06 && ny < o.y1 + 0.05 && o.y0 < ny + nh + 0.05);
+    let px = null;
+    for (let i = 0; i < 14 && px === null; i++) {
+      const c = clamp(record.doorLocal.x + rng.range(-2.6, 2.6), 0.3, main.w - nw - 0.3);
+      if (clear(c)) px = c;
+    }
+    // Failing that, walk the wall for the first pier wide enough to take it.
+    if (px === null) {
+      for (let c = 0.3; c <= main.w - nw - 0.3; c += 0.25) {
+        if (clear(c)) { px = c; break; }
+      }
+    }
+    if (px !== null) {
+      mb.quadMat([px, ny, -0.02], [px + nw, ny, -0.02],
+        [px + nw, ny + nh, -0.02], [px, ny + nh, -0.02], sm, [0, 0, -1], { noTess: true });
+    }
   }
 
   mb.pop();
@@ -846,6 +894,58 @@ function windowSpecFor(roomType, progType, storey, commercial, industrial) {
     case ROOM.WORKFLOOR: return { w: 1.5, h: 1.4, sill: 2.2, gap: 1.4, max: 3 };
     default: return { w: 1.15, h: 1.35, sill: 0.95, gap: 0.85, max: 2 };
   }
+}
+
+// --- elevation resolution --------------------------------------------------
+
+const PIER = 0.34;      // minimum wall left between two openings
+const RETURN = 0.42;    // minimum wall left at a corner, clear of the corner board
+
+/**
+ * Drop every opening that would collide with one already accepted, or with the
+ * end of the wall.
+ *
+ * Priority order is doors, then the entrance's own storey, then bigger
+ * openings before smaller ones — losing a bathroom light is invisible, losing
+ * a shopfront is not. Openings are only in conflict if they overlap in BOTH
+ * axes: a fanlight directly above a door is fine and common, two windows at
+ * the same height a hand's width apart is neither.
+ *
+ * Returns a new list; the caller uses it for geometry, for collision and for
+ * the baked window light, so all three agree about what is actually cut.
+ */
+function resolveOpenings(list, wallLen) {
+  const sorted = list.slice().sort((a, b) => {
+    if (!!b.isDoor !== !!a.isDoor) return b.isDoor ? 1 : -1;
+    const sa = a.storey ?? 0, sb = b.storey ?? 0;
+    if (sa !== sb) return sa - sb;
+    return (b.u1 - b.u0) * (b.y1 - b.y0) - (a.u1 - a.u0) * (a.y1 - a.y0);
+  });
+
+  const kept = [];
+  for (const o of sorted) {
+    // A door that would run off the end of the wall is slid back on rather
+    // than dropped; anything else that will not fit simply is not there.
+    if (o.isDoor) {
+      const w = o.u1 - o.u0;
+      if (w < wallLen - RETURN * 2) {
+        const u0 = clamp(o.u0, RETURN, wallLen - RETURN - w);
+        o.u1 = u0 + w; o.u0 = u0;
+      }
+    }
+    if (o.u0 < RETURN - 1e-3 || o.u1 > wallLen - RETURN + 1e-3) continue;
+
+    let clash = false;
+    for (const k of kept) {
+      const uOverlap = o.u0 < k.u1 + PIER && k.u0 < o.u1 + PIER;
+      const yOverlap = o.y0 < k.y1 + 0.22 && k.y0 < o.y1 + 0.22;
+      if (uOverlap && yOverlap) { clash = true; break; }
+    }
+    if (!clash) kept.push(o);
+  }
+  // Back in placement order, so the geometry pass walks the wall left to right.
+  kept.sort((a, b) => a.u0 - b.u0);
+  return kept;
 }
 
 /**

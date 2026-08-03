@@ -8,7 +8,7 @@ import { Audio } from './core/audio.js';
 import { Game } from './game/game.js';
 
 // Bumped whenever input handling changes, so a stale cached copy is obvious.
-export const BUILD = 'ashgrove-2026-08-02-f';
+export const BUILD = 'ashgrove-2026-08-03-terrain-a';
 
 const canvas = document.getElementById('view');
 const loadingEl = document.getElementById('loading');

@@ -268,6 +268,17 @@ export class World {
     this.assigned = assigned;
     this.programmeCounts = counts;
     for (const lot of assigned) lot.footprint = computeFootprint(lot, rng);
+    // Nobody built in the clay pit. Keeping the floor of the Hollow clear is
+    // what turns it from a dip in a housing estate into an arena: steep on
+    // three sides, one ramp in, and nothing in it to break line of sight.
+    const hl = cfg.landforms.hollow;
+    for (const lot of assigned) {
+      if (!lot.footprint) continue;
+      if (dist2D(lot.centroid.x, lot.centroid.z, hl.x, hl.z) < hl.radius * 0.68) {
+        lot.footprint = null;
+        lot.kind = 'yard';
+      }
+    }
     this.surfaces = buildRoadSurfaces(this.graph);
     // Siting is only provisional until every neighbour exists: see fit.js.
     this.stats.fit = fitFootprints(this);
@@ -758,7 +769,7 @@ export class World {
               yFn, dm, { spanU: w * 2, spanV: l, cell: 1.5 });
           });
           const dvx = lerp(gc.x, gr.x, 0.45), dvz = lerp(gc.z, gr.z, 0.45);
-          if (rng.chance(0.35) && this.vehicleFits(dvx, dvz, 2.9) && !this.insideAnyBuilding(dvx, dvz, 1.2)) {
+          if (rng.chance(0.35) && this.vehicleFits(dvx, dvz, 2.9) && !this.insideAnyBuilding(dvx, dvz, 1.9)) {
             this.vehicles.push({ x: dvx, z: dvz, r: 2.9 });
             const yaw = Math.atan2(ux, uz);
             const wrecked = rng.chance(0.4);
@@ -1295,6 +1306,43 @@ export class World {
       if (nearestRoad(this.graph, x, z, 12)) continue;
       this.plantTree(x, z, rng, { pine: true, h: rng.range(7, 13) });
     }
+
+    // The Hollow: a worked-out clay pit. Steep on three sides with one shallow
+    // ramp, standing water at the bottom, and the plant that dug it still
+    // sitting where it stopped. It plays completely differently from the
+    // square — no cover, no exits, and everything above you.
+    const hl = cfg.landforms.hollow;
+    const floorY = terrain.heightAt(hl.x, hl.z);
+    const puddle = this.m('water', 8);
+    store.emit(hl.x, hl.z, (mb) => {
+      mb.env = this.env;
+      const r = hl.radius * 0.28;
+      mb.quadMat([hl.x - r, floorY + 0.25, hl.z + r], [hl.x + r, floorY + 0.25, hl.z + r],
+        [hl.x + r, floorY + 0.25, hl.z - r], [hl.x - r, floorY + 0.25, hl.z - r],
+        puddle, [0, 1, 0], { spanU: r * 2, spanV: r * 2, maxEdge: 6 });
+    });
+    for (let i = 0; i < 18; i++) {
+      const a = rng.range(0, TAU), d = Math.sqrt(rng.next()) * hl.radius * 0.85;
+      const x = hl.x + Math.cos(a) * d, z = hl.z + Math.sin(a) * d;
+      if (terrain.slopeAt(x, z) > 0.7) continue;
+      const r = rng.next();
+      this.onGround(x, z, (mb, ctx) => {
+        if (r < 0.28) P.junkPile(mb, ctx, x, z, rng, rng.range(1.6, 3.4));
+        else if (r < 0.48) P.barrel(mb, ctx, x, z, rng.range(0, TAU), rng, { hazard: rng.chance(0.5), toppled: rng.chance(0.5) });
+        else if (r < 0.62) P.palletStack(mb, ctx, x, z, rng.range(0, TAU), rng);
+        else if (r < 0.70) P.shippingContainer(mb, ctx, x, z, rng.range(0, TAU), rng);
+        else if (r < 0.78) P.jerseyBarrier(mb, ctx, x, z, rng.range(0, TAU), rng);
+        else P.weeds(mb, ctx, x, z, rng, 6, 2.0, { tall: true });
+      });
+    }
+    // The digger, at the foot of the ramp, pointing at the face it was cutting.
+    const ra = hl.rampAngle;
+    const dx = hl.x + Math.cos(ra) * hl.radius * 0.55, dz = hl.z + Math.sin(ra) * hl.radius * 0.55;
+    if (!this.insideAnyBuilding(dx, dz, 3.2) && this.vehicleFits(dx, dz, 5)) {
+      this.onGround(dx, dz, (mb, ctx) => P.truck(mb, ctx, dx, dz, ra + Math.PI, rng));
+      this.vehicles.push({ x: dx, z: dz, r: 5 });
+    }
+    this.spawns.push({ p: { x: hl.x, y: floorY, z: hl.z }, kind: 'yard' });
 
     // The rail line along the eastern edge, with ballast, sleepers and rails.
     // The formation is level per span, so on the slope it runs on an

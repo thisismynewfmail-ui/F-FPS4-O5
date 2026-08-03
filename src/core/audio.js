@@ -427,6 +427,15 @@ export class Audio {
   }
 
   /** Distant groans, so the town never feels empty. */
+  /**
+   * Something a long way off, in a direction that does not have to be true.
+   *
+   * The pan is not derived from any source, because there is no source. Every
+   * other sound in the game is spatialised honestly, which is exactly what
+   * makes this one work: after an hour the player has learned to trust the
+   * stereo field, and then once every twenty seconds or so it tells them
+   * something is behind a wall they have already cleared.
+   */
   distantMoan() {
     if (!this.ctx) return;
     const t = this.now;

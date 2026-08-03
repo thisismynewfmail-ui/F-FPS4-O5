@@ -30,7 +30,11 @@ export function placeSecrets(world) {
     seventeenthStep, boardedHouse, listeningMast,
   ];
   for (const b of builders) {
-    try { b(world, rng); } catch (err) { if (globalThis.__SECRET_DEBUG) console.log("secret failed:", b.name, err.message); }
+    try { b(world, rng); } catch (err) {
+      // A secret that will not fit on this seed is not a secret worth crashing
+      // for; there are eleven others and the validator asserts the count.
+      if (globalThis.__SECRET_DEBUG) console.log("secret failed:", b.name, err.message);
+    }
   }
 }
 

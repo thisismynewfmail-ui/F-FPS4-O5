@@ -117,11 +117,22 @@ export class Terrain {
     }
 
     // The historic crossroads sits in the flattest ground in the valley —
-    // that is *why* the town is there. Pull the core toward its own datum.
+    // that is *why* the town is there. The core is pulled toward its own datum
+    // but not flattened onto it: the opening sector is small, and if it were
+    // level there would be nowhere in it to stand above anything, which is the
+    // one thing the first five hundred kills most need.
     const o = this.cfg.origin;
     const dc = Math.hypot(x - o.x, z - o.z);
     const settle = smoothstep(clamp01(1 - dc / (this.cfg.coreRadius * 1.55)));
-    y = lerp(y, y * 0.30 + lf.coreDatum * 0.70, settle * 0.82);
+    y = lerp(y, y * 0.42 + lf.coreDatum * 0.58, settle * 0.74);
+
+    // Open country beyond the last cordon was never graded by anybody, so it
+    // keeps its own shape: long, low ridges and hollows at field scale. This
+    // is also what stops the outermost sector — which is mostly farmland and
+    // has no landform of its own — from being the one flat place on the map.
+    const half = this.cfg.mapSize / 2;
+    const outer = smoothstep(clamp01((dc - half * 0.80) / (half * 0.45)));
+    y += (fbm(x * 0.0021 + 41, z * 0.0021 + 17, 3, s ^ 0x3311) - 0.5) * 17 * outer;
 
     return y;
   }

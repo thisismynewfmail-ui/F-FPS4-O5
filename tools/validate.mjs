@@ -105,21 +105,34 @@ for (const seed of seeds) {
   // not merely a dull one.
   const relief = world.stats.relief;
   if (relief.hi - relief.lo < 20) problems.push(`only ${(relief.hi - relief.lo).toFixed(1)} m of relief`);
+  // Sampled per sector rather than uniformly over the map: the opening sector
+  // is a fiftieth of the area, so a uniform draw gives it a handful of points
+  // and systematically under-reports the one figure that matters most.
   const perSector = new Array(world.districts.list.length).fill(null);
-  for (let i = 0; i < 3000; i++) {
-    const x = cfg.bounds.minX + Math.random() * cfg.mapSize;
-    const z = cfg.bounds.minZ + Math.random() * cfg.mapSize;
-    const d = world.districts.districtAt(x, z);
-    const y = world.terrain.heightAt(x, z);
-    const s = perSector[d] || (perSector[d] = { lo: y, hi: y, n: 0 });
-    if (y < s.lo) s.lo = y;
-    if (y > s.hi) s.hi = y;
-    s.n++;
+  for (let d = 0; d < world.districts.list.length; d++) {
+    const s = { lo: Infinity, hi: -Infinity, n: 0 };
+    const rIn = d === 0 ? 0 : world.districts.radiusOf(d - 1, 0);
+    const rOut = d < world.districts.list.length - 1
+      ? world.districts.radiusOf(d, 0) : cfg.mapSize * 0.72;
+    for (let i = 0; i < 6000; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const r = rIn + Math.sqrt(Math.random()) * (rOut * 1.25 - rIn);
+      const x = cfg.origin.x + Math.cos(a) * r, z = cfg.origin.z + Math.sin(a) * r;
+      if (x < cfg.bounds.minX || x > cfg.bounds.maxX || z < cfg.bounds.minZ || z > cfg.bounds.maxZ) continue;
+      if (world.districts.districtAt(x, z) !== d) continue;
+      const y = world.terrain.heightAt(x, z);
+      if (y < s.lo) s.lo = y;
+      if (y > s.hi) s.hi = y;
+      s.n++;
+    }
+    if (s.n) perSector[d] = s;
   }
+  // Every sector must contain 10 m of height difference somewhere in it, so
+  // there is always ground to hold and ground to be caught on.
   for (let d = 0; d < perSector.length; d++) {
     const s = perSector[d];
     if (!s || s.n < 30) continue;
-    if (s.hi - s.lo < 8) warn.push(`sector ${d} relief only ${(s.hi - s.lo).toFixed(1)} m`);
+    if (s.hi - s.lo < 10) problems.push(`sector ${d} relief only ${(s.hi - s.lo).toFixed(1)} m (want 10+)`);
   }
   // The streets must remain walkable: no carriageway may exceed its class's
   // maximum grade by more than a small tolerance.
@@ -249,6 +262,29 @@ for (const seed of seeds) {
   if (doorInWall > world.buildings.length * 0.06) {
     problems.push(`${doorInWall} front doors are not on a street`);
   }
+
+  // --- openings on the same elevation -------------------------------------
+  // A door drawn across a window is the most conspicuous clipping there is:
+  // the wall is cut correctly, so it is not a hole, it is two panels fighting
+  // over the same rectangle. Every pair on every elevation is checked.
+  let clashes = 0, offWall = 0;
+  for (const b of world.buildings) {
+    if (!b.openings) continue;
+    for (const name of ['front', 'back', 'left', 'right']) {
+      const list = b.openings[name];
+      const len = b.faceLen[name];
+      for (let i = 0; i < list.length; i++) {
+        const o = list[i];
+        if (o.u0 < 0.2 || o.u1 > len - 0.2) offWall++;
+        for (let j = i + 1; j < list.length; j++) {
+          const k = list[j];
+          if (o.u0 < k.u1 && k.u0 < o.u1 && o.y0 < k.y1 && k.y0 < o.y1) clashes++;
+        }
+      }
+    }
+  }
+  if (clashes) problems.push(`${clashes} pairs of openings overlap on an elevation`);
+  if (offWall) problems.push(`${offWall} openings run off the end of their wall`);
 
   // --- street furniture inside walls --------------------------------------
   // Furniture is walked along kerb lines and dropped into yards, both of which

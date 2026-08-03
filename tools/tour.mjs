@@ -62,6 +62,22 @@ await page.evaluate(() => {
     p.vx = p.vy = p.vz = 0;
     p.hurtFlash = 0;
   };
+  // The elevations most likely to show a clipping mistake: the widest
+  // frontages with the most openings on them, which is where a door and a
+  // shopfront window are most likely to have wanted the same rectangle.
+  window.__facades = (n) => {
+    const w = g.world;
+    return w.buildings
+      .filter((b) => b.openings && b.doorWorld)
+      .map((b) => ({ b, n: b.openings.front.length }))
+      .sort((p, q) => q.n - p.n)
+      .slice(0, n)
+      .map(({ b }) => ({
+        x: b.doorWorld.x, z: b.doorWorld.z,
+        nx: Math.sin(b.yaw), nz: Math.cos(b.yaw),
+        label: b.label, w: b.lot.footprint.w,
+      }));
+  };
   window.__plan = () => {
     const w = g.world;
     return {
@@ -93,6 +109,22 @@ async function shot(name, tx, tz, back = 16, bearing = 0, pitch = 0) {
   await page.waitForTimeout(140);
   await page.screenshot({ path: `${OUT}/${name}.png` });
   console.log(`${name.padEnd(26)} at ${p.x.toFixed(0)},${p.z.toFixed(0)} ground ${p.gy.toFixed(1)}`);
+}
+
+// Facades, straight on, from far enough back to see the whole elevation.
+const facades = await page.evaluate(() => window.__facades(6));
+for (let i = 0; i < facades.length; i++) {
+  const f = facades[i];
+  const back = Math.max(11, f.w * 0.95);
+  await page.evaluate(([f, back]) => {
+    const g = window.__game;
+    // Stand out in the street, square to the front wall.
+    const x = f.x - f.nx * back, z = f.z - f.nz * back;
+    window.__look(x, g.world.gy(x, z) + 2.4, z, f.x, f.z, -0.06);
+  }, [f, back]);
+  await page.waitForTimeout(420);
+  await page.screenshot({ path: `${OUT}/facade-${i}-${f.label.toLowerCase().replace(/\W+/g, '-')}.png` });
+  console.log(`facade-${i}`.padEnd(26) + ` ${f.label}`);
 }
 
 // One gate per cordon ring, whichever is first.
