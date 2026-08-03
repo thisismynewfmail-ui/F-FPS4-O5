@@ -78,6 +78,20 @@ await page.evaluate(() => {
         label: b.label, w: b.lot.footprint.w,
       }));
   };
+  // The buildings standing on the steepest sites, which is where the ground
+  // meeting the bottom of the wall is hardest and where a gap shows first.
+  window.__bases = (n) => {
+    const w = g.world;
+    return w.buildings
+      .filter((b) => b.doorWorld && b.lot.footprint)
+      .sort((p, q) => q.foundDrop - p.foundDrop)
+      .slice(0, n)
+      .map((b) => ({
+        x: b.doorWorld.x, z: b.doorWorld.z,
+        nx: Math.sin(b.yaw), nz: Math.cos(b.yaw),
+        drop: b.foundDrop, label: b.label,
+      }));
+  };
   window.__plan = () => {
     const w = g.world;
     return {
@@ -136,6 +150,29 @@ async function shot(name, tx, tz, back = 16, bearing = 0, pitch = 0) {
   await page.screenshot({ path: `${OUT}/${name}.png` });
   console.log(`${name.padEnd(26)} at ${p.x.toFixed(0)},${p.z.toFixed(0)} ` +
     `ground ${p.gy.toFixed(1)}${p.clear ? '' : '  (no clear view — shot is of whatever is in the way)'}`);
+}
+
+// The base of a wall on the steepest sites, from across the street and low —
+// the angle a player actually sees a gap from.
+const bases = await page.evaluate(() => window.__bases(4));
+for (let i = 0; i < bases.length; i++) {
+  const b = bases[i];
+  const p = await page.evaluate(([b]) => {
+    const g = window.__game;
+    // Back off until we are out of any neighbour, then aim at the wall foot.
+    let x = b.x, z = b.z, d = 5;
+    for (; d < 22; d += 1.5) {
+      const px = b.x - b.nx * d, pz = b.z - b.nz * d;
+      if (g.world.insideAnyBuilding(px, pz, 0.8)) break;
+      x = px; z = pz;
+    }
+    const gy = g.world.gy(x, z);
+    window.__look(x, gy + 1.5, z, b.x, b.z, -0.13);
+    return { x, z, d };
+  }, [b]);
+  await page.waitForTimeout(420);
+  await page.screenshot({ path: `${OUT}/base-${i}-drop${b.drop.toFixed(1)}.png` });
+  console.log(`base-${i}`.padEnd(26) + ` ${b.label}  foundation ${b.drop.toFixed(2)} m deep, from ${p.d.toFixed(0)} m`);
 }
 
 // Facades, straight on, from far enough back to see the whole elevation.

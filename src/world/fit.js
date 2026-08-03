@@ -260,6 +260,33 @@ export function fitFootprints(world) {
     }
   }
 
+  // --- 5. put every frame back where the builder expects to find it -------
+  //
+  // `computeFootprint` creates the main mass at local (0,0), and `building.js`
+  // relies on that: it draws the wall shells, the corner boards, the interior
+  // and the collision from 0 to (w,d), while it draws the FOUNDATION, the
+  // roof, the guttering and the chimney from the mass's own x0/z0. Those are
+  // the same thing only while x0 and z0 are zero.
+  //
+  // Every shrink above calls `shiftOrigin`, which subtracts from every mass's
+  // local coordinates — so the moment a building is resized, its foundation
+  // and roof slide away from its walls. On the reference seed that was 84
+  // buildings out of 151, displaced by up to 9.8 m: a gap of open air under
+  // one wall and a roof hanging off the opposite side.
+  //
+  // Re-normalising here is the whole fix, and it belongs here rather than in
+  // the builder because this is the pass that broke the invariant.
+  for (const lot of lots) {
+    const fp = lot.footprint;
+    if (!fp) continue;
+    const main = fp.masses.find((m) => m.kind === 'main');
+    if (!main) continue;
+    if (main.x0 !== 0 || main.z0 !== 0) {
+      fp.shiftOrigin(main.x0, main.z0);
+      fp.reframe();
+    }
+  }
+
   world.assigned = world.assigned.filter((l) => l.footprint);
   return stats;
 }

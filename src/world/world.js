@@ -328,6 +328,48 @@ export class World {
     terrain.relax(3);
     terrain.buildSagField();
 
+    // (e) size every foundation against the ground that will actually be DRAWN.
+    //
+    // The figure computed in (c) is provisional in three ways, and all three
+    // make it too shallow: it samples only the four corners of each mass, so a
+    // dip halfway along a wall is missed; it runs before relaxation, which
+    // moves the ground again; and it measures the height field rather than the
+    // ground mesh, which is deliberately sunk below it. Sampled properly —
+    // right around the perimeter, a little way outside the wall, against the
+    // rendered surface — the answer is often half a metre deeper, and half a
+    // metre is the difference between a plinth and a gap of daylight under the
+    // building.
+    for (const lot of this.assigned) {
+      const fp = lot.footprint;
+      if (!fp) continue;
+      const padY = lot.padY;
+      let lowest = padY;
+      for (const m of fp.masses) {
+        const cx = (m.corners[0].x + m.corners[2].x) / 2;
+        const cz = (m.corners[0].z + m.corners[2].z) / 2;
+        for (let i = 0; i < 4; i++) {
+          const a = m.corners[i], b = m.corners[(i + 1) % 4];
+          const len = Math.hypot(b.x - a.x, b.z - a.z);
+          const steps = Math.max(2, Math.ceil(len / 1.2));
+          for (let s = 0; s <= steps; s++) {
+            const t = s / steps;
+            const px = lerp(a.x, b.x, t), pz = lerp(a.z, b.z, t);
+            // On the wall line and a little outside it: the pad feather starts
+            // the moment you step off the footprint, so the ground immediately
+            // beside a wall is already below pad level.
+            const ox = px - cx, oz = pz - cz;
+            const ol = Math.hypot(ox, oz) || 1;
+            for (const out of [0, 0.7, 1.5]) {
+              const qx = px + (ox / ol) * out, qz = pz + (oz / ol) * out;
+              const g = terrain.heightAt(qx, qz) - GROUND_SINK(terrain, qx, qz);
+              if (g < lowest) lowest = g;
+            }
+          }
+        }
+      }
+      lot.foundDrop = clamp(padY - lowest + 0.30, 0.45, 7);
+    }
+
     this.emitGround();
   }
 

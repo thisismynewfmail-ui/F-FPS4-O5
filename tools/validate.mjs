@@ -263,6 +263,65 @@ for (const seed of seeds) {
     problems.push(`${doorInWall} front doors are not on a street`);
   }
 
+  // --- the building frame -------------------------------------------------
+  // `building.js` draws the wall shells, corner boards, interior and collision
+  // from local (0,0), and the foundation, roof, guttering and chimney from the
+  // main mass's own x0/z0. Those agree only while the main mass starts at the
+  // origin of its own frame, and the siting pass moves frames around. When it
+  // stops being true the foundation slides out from under the walls, which is
+  // a gap of daylight under the building and a roof hanging off the far side.
+  {
+    let skewed = 0, worst = 0;
+    for (const b of world.buildings) {
+      const m = b.masses.find((x) => x.kind === 'main');
+      if (!m) continue;
+      const d = Math.hypot(m.x0, m.z0);
+      if (d > 1e-6) { skewed++; worst = Math.max(worst, d); }
+    }
+    if (skewed) {
+      problems.push(`${skewed} buildings have their frame off the main mass (worst ${worst.toFixed(1)} m) — foundation and roof will not line up with the walls`);
+    }
+  }
+
+  // --- foundations must reach the ground ----------------------------------
+  // Sampled around the whole perimeter against the surface that is actually
+  // drawn, which is the height field minus the ground mesh's own sink.
+  {
+    const T = world.terrain;
+    const sink = (x, z) => 0.05 + T.sagAt(x, z) + 0.30 * T.fixAt(x, z);
+    let floating = 0, worstGap = 0;
+    for (const b of world.buildings) {
+      const base = b.baseY - b.foundDrop;
+      for (const m of b.masses) {
+        if (m.kind === 'porch') continue;
+        const cx = (m.corners[0].x + m.corners[2].x) / 2;
+        const cz = (m.corners[0].z + m.corners[2].z) / 2;
+        let gap = 0;
+        for (let i = 0; i < 4; i++) {
+          const a = m.corners[i], bb = m.corners[(i + 1) % 4];
+          const len = Math.hypot(bb.x - a.x, bb.z - a.z);
+          const steps = Math.max(2, Math.ceil(len / 1.5));
+          for (let s = 0; s <= steps; s++) {
+            const t = s / steps;
+            const px = a.x + (bb.x - a.x) * t, pz = a.z + (bb.z - a.z) * t;
+            const ox = px - cx, oz = pz - cz;
+            const ol = Math.hypot(ox, oz) || 1;
+            for (const out of [0, 0.8]) {
+              const qx = px + (ox / ol) * out, qz = pz + (oz / ol) * out;
+              const g = T.heightAt(qx, qz) - sink(qx, qz);
+              // Daylight is the foundation bottom standing ABOVE the ground.
+              if (base - g > gap) gap = base - g;
+            }
+          }
+        }
+        if (gap > 0.02) { floating++; worstGap = Math.max(worstGap, gap); break; }
+      }
+    }
+    if (floating) {
+      problems.push(`${floating} buildings do not reach the ground (worst ${worstGap.toFixed(2)} m of daylight under a wall)`);
+    }
+  }
+
   // --- openings on the same elevation -------------------------------------
   // A door drawn across a window is the most conspicuous clipping there is:
   // the wall is cut correctly, so it is not a hole, it is two panels fighting

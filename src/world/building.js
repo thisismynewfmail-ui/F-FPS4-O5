@@ -513,7 +513,11 @@ export function buildBuilding(lot, ctx) {
   // How far the natural ground falls away under the footprint. On the hill
   // streets this is what you actually see: a house whose front step is at
   // pavement level and whose back wall stands on two metres of stonework.
-  const foundDrop = clamp(lot.foundDrop ?? 0.5, 0.4, 4.2);
+  // Deep enough to reach the drawn ground everywhere around the building —
+  // `world.stepTerrain` measures that directly, so this only guards against a
+  // missing value, and its ceiling has to be high enough not to undo the
+  // measurement on a steep site.
+  const foundDrop = clamp(lot.foundDrop ?? 0.5, 0.45, 7);
 
   const record = {
     lot, prog, storeys, storeyHeight: sh, plinth, eaveY, baseY, foundDrop,

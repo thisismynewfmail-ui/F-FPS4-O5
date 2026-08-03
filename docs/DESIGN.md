@@ -303,7 +303,17 @@ so the path from the pavement is never a step and the fall of the site is taken
 at the back. How far the natural ground drops away under the footprint decides
 how tall the plinth is, which on the hill streets is most of what you actually
 see: a house whose front step is at pavement level and whose back wall stands on
-two metres of stonework. Where a whole block's interior stands above the footway
+two metres of stonework.
+
+That depth is measured **after** the ground is final, and against the surface
+that is actually drawn. Measuring it earlier — at the four corners of the
+footprint, on the height field, before relaxation — is wrong three times over
+and all three errors are in the same direction: it misses a dip halfway along a
+wall, it predates the pass that moves the ground again, and it ignores that the
+ground mesh is deliberately sunk below the field it samples. The honest figure
+is on average 0.7 m deeper and sometimes 2.8 m deeper, and the difference
+between the two is the difference between a plinth and a strip of daylight
+under the building. It was leaving daylight under 120 buildings out of 151. Where a whole block's interior stands above the footway
 the difference is held by a retaining wall — with a flight of steps wherever a
 front path or a driveway crosses it, because a retaining wall without them is
 the fastest way to seal every door on the street.
@@ -324,6 +334,22 @@ back toward its own lot, delete an offending porch or garage, shrink a main mass
 in small steps, and only as a last resort abandon the building and leave the lot
 as a yard. It costs about a tenth of the buildings and the result is exactly
 zero overlaps on every seed, which `validate.mjs` asserts.
+
+**And then it puts the frame back.** `computeFootprint` creates the main mass at
+local (0,0), and the builder depends on that without ever saying so: it draws
+the wall shells, the corner boards, the interior and the collision from 0 to
+(w,d), and it draws the foundation, the roof, the guttering and the chimney from
+the mass's own `x0`/`z0`. Those are the same thing only while `x0` and `z0` are
+zero — and every shrink in the pass above calls `shiftOrigin`, which subtracts
+from every mass's local coordinates.
+
+So the moment a building was resized, its foundation and roof slid away from its
+walls. On the reference seed that was 84 buildings out of 151, displaced by up
+to 9.8 m: a strip of open air under one wall and a roof overhanging the far
+side. The fix is to re-normalise the frame at the end of the pass that broke the
+invariant, and `validate.mjs` now asserts the invariant directly rather than its
+symptoms, because "the main mass starts at the origin of its own frame" is a
+sentence you can check and "the roof looks wrong from the street" is not.
 
 ## 4. Materials
 
