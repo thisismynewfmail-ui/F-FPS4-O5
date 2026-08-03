@@ -37,6 +37,7 @@ export class MeshBuilder {
     this.tx = 0; this.ty = 0; this.tz = 0;
     this.cy = 1; this.sy = 0;      // cos/sin of the current yaw
     this.tint = null;              // multiply baked light, e.g. for decay
+    this.wind = 0;                 // default sway allowance for emitted verts
   }
 
   // --- transform stack -----------------------------------------------------
@@ -73,7 +74,7 @@ export class MeshBuilder {
   // --- primitives ----------------------------------------------------------
 
   /** Emit one vertex in local space; returns its index. */
-  vertex(x, y, z, u, v, layer, nx, ny, nz, lightOverride) {
+  vertex(x, y, z, u, v, layer, nx, ny, nz, lightOverride, wind) {
     const wx = this._wx(x, z);
     const wy = this.ty + y;
     const wz = this._wz(x, z);
@@ -81,7 +82,8 @@ export class MeshBuilder {
     const wnz = -nx * this.sy + nz * this.cy;
     let l = lightOverride || this.probe(wx, wy, wz, wnx, ny, wnz);
     if (this.tint) l = [l[0] * this.tint[0], l[1] * this.tint[1], l[2] * this.tint[2]];
-    this.verts.push(wx, wy, wz, u, v, layer, l[0], l[1], l[2], wnx, ny, wnz);
+    this.verts.push(wx, wy, wz, u, v, layer, l[0], l[1], l[2], wnx, ny, wnz,
+      wind !== undefined ? wind : this.wind);
     return this.vertCount++;
   }
 
@@ -100,9 +102,13 @@ export class MeshBuilder {
     const [nx, ny, nz] = normal;
     const base = this.vertCount;
     const light = opts.light;
+    // opts.wind = [atV0, atV1]: sway allowance ramped along the p0->p3 axis,
+    // which for an upright card is bottom-to-top.
+    const wind = opts.wind;
 
     for (let j = 0; j <= nv; j++) {
       const tv = j / nv;
+      const wj = wind ? wind[0] + (wind[1] - wind[0]) * tv : undefined;
       for (let i = 0; i <= nu; i++) {
         const tu = i / nu;
         // Bilinear across the quad: p0->p1 is u, p0->p3 is v.
@@ -111,7 +117,7 @@ export class MeshBuilder {
         const x = ax + (bx - ax) * tv, y = ay + (by - ay) * tv, z = az + (bz - az) * tv;
         const u = uv[0] + (uv[2] - uv[0]) * tu;
         const v = uv[1] + (uv[3] - uv[1]) * tv;
-        this.vertex(x, y, z, u, v, layer, nx, ny, nz, light);
+        this.vertex(x, y, z, u, v, layer, nx, ny, nz, light, wj);
       }
     }
     const row = nu + 1;
@@ -197,10 +203,16 @@ export class MeshBuilder {
   }
 
   /**
-   * Tessellated horizontal polygon — used for large surfaces (roads, plazas)
-   * where vertex lighting needs interior samples, not just corners.
+   * Tessellated ground polygon — used for large surfaces (roads, plazas, lot
+   * ground) where vertex lighting needs interior samples, not just corners.
+   *
+   * `y` may be a number for a level surface or a function (x,z)=>height, which
+   * is how every paved surface in the town drapes itself over the terrain: the
+   * grid clipping that bounds triangle aspect ratio for the affine mapper
+   * doubles as the tessellation the displacement needs.
    */
   polyFlatTess(poly, y, material, cell = 6, opts = {}) {
+    const yFn = typeof y === 'function' ? y : null;
     // Triangulate first (ear clipping handles concave blocks correctly), then
     // clip each triangle against a world-aligned grid. Clipping the whole
     // polygon directly is wrong — Sutherland-Hodgman on a concave subject emits
@@ -212,11 +224,15 @@ export class MeshBuilder {
     const clip = MeshBuilder._clip.clipPolyHalfplane;
     const uOff = opts.uOff || 0, vOff = opts.vOff || 0;
 
+    const nrm = opts.normalFn;
     const emitConvex = (pts) => {
       if (!pts || pts.length < 3) return;
-      const idx = pts.map((p) => this.vertex(p.x, y, p.z,
-        (p.x + uOff) / tile, (p.z + vOff) / tile,
-        material.layer, 0, 1, 0, opts.light));
+      const idx = pts.map((p) => {
+        const n = nrm ? nrm(p.x, p.z) : null;
+        return this.vertex(p.x, yFn ? yFn(p.x, p.z) : y, p.z,
+          (p.x + uOff) / tile, (p.z + vOff) / tile,
+          material.layer, n ? n.x : 0, n ? n.y : 1, n ? n.z : 0, opts.light);
+      });
       for (let i = 1; i < idx.length - 1; i++) this.tri(idx[0], idx[i + 1], idx[i]);
     };
 
@@ -246,23 +262,87 @@ export class MeshBuilder {
     return this;
   }
 
-  /** Vertical wall band along a polyline (curbs, parapets, retaining walls). */
+  /**
+   * A horizontal quad draped over a height function, keeping the quad's OWN
+   * uv parameterisation.
+   *
+   * `polyFlatTess` maps UVs from world XZ, which is right for road surfaces and
+   * lot ground — they should tile continuously across a whole block — and
+   * wrong for anything laid in strips. A pavement's slabs run along the kerb;
+   * mapping it from world space runs them diagonally across the footway and
+   * turns a paved street into a barcode. Corners are XZ points, p0->p1 is u
+   * and p0->p3 is v.
+   */
+  quadDrape(p0, p1, p2, p3, yFn, material, opts = {}) {
+    const spanU = opts.spanU ?? Math.hypot(p1.x - p0.x, p1.z - p0.z);
+    const spanV = opts.spanV ?? Math.hypot(p3.x - p0.x, p3.z - p0.z);
+    const tile = material.tile ?? DEFAULT_TILE;
+    const cell = opts.cell ?? 1.8;
+    const nu = Math.max(1, Math.min(24, Math.ceil(Math.max(spanU, Math.hypot(p2.x - p3.x, p2.z - p3.z)) / cell)));
+    const nv = Math.max(1, Math.min(24, Math.ceil(Math.max(spanV, Math.hypot(p2.x - p1.x, p2.z - p1.z)) / cell)));
+    // `uv1` overrides the derived repeat count, which is what road markings
+    // need: a dashed centreline is one texture across and N down its length.
+    const u1 = opts.uv1 ? opts.uv1[0] : (material.fit ? 1 : spanU / tile);
+    const v1 = opts.uv1 ? opts.uv1[1] : (material.fit ? 1 : spanV / tile);
+    const base = this.vertCount;
+    const uOff = opts.uvShift ? opts.uvShift[0] : 0;
+    const vOff = opts.uvShift ? opts.uvShift[1] : 0;
+    for (let j = 0; j <= nv; j++) {
+      const tv = j / nv;
+      for (let i = 0; i <= nu; i++) {
+        const tu = i / nu;
+        const ax = p0.x + (p1.x - p0.x) * tu, az = p0.z + (p1.z - p0.z) * tu;
+        const bx = p3.x + (p2.x - p3.x) * tu, bz = p3.z + (p2.z - p3.z) * tu;
+        const x = ax + (bx - ax) * tv, z = az + (bz - az) * tv;
+        const uu = uOff + u1 * tu, vv = vOff + v1 * tv;
+        this.vertex(x, yFn(x, z), z, material.rot ? vv : uu, material.rot ? uu : vv,
+          material.layer, 0, 1, 0, opts.light);
+      }
+    }
+    const row = nu + 1;
+    for (let j = 0; j < nv; j++) {
+      for (let i = 0; i < nu; i++) {
+        const a = base + j * row + i, b = a + 1, c = a + row, d = c + 1;
+        this.indices.push(a, b, d, a, d, c);
+      }
+    }
+    return this;
+  }
+
+  /**
+   * Vertical wall band along a polyline (kerbs, parapets, retaining walls).
+   *
+   * `yBottom` / `yTop` may each be a number or a function (x,z)=>height, so a
+   * kerb follows the camber of the road it edges and a retaining wall keeps a
+   * level coping while its foot chases the slope down.
+   */
   ribbon(points, yBottom, yTop, material, opts = {}) {
+    const fb = typeof yBottom === 'function' ? yBottom : () => yBottom;
+    const ft = typeof yTop === 'function' ? yTop : () => yTop;
+    // A long ribbon over sloping ground has to be split or it cuts corners.
+    const seg = opts.segment ?? 3.0;
     for (let i = 0; i < points.length - 1; i++) {
       const a = points[i], b = points[i + 1];
-      const dx = b.x - a.x, dz = b.z - a.z;
-      const len = Math.hypot(dx, dz);
-      if (len < 1e-4) continue;
-      const nx = dz / len, nz = -dx / len;
-      this.quadMat(
-        [a.x, yBottom, a.z], [b.x, yBottom, b.z], [b.x, yTop, b.z], [a.x, yTop, a.z],
-        material, [nx, 0, nz], Object.assign({ spanU: len, spanV: yTop - yBottom }, opts),
-      );
-      if (opts.doubleSided) {
-        this.quadMat(
-          [b.x, yBottom, b.z], [a.x, yBottom, a.z], [a.x, yTop, a.z], [b.x, yTop, b.z],
-          material, [-nx, 0, -nz], Object.assign({ spanU: len, spanV: yTop - yBottom }, opts),
-        );
+      const total = Math.hypot(b.x - a.x, b.z - a.z);
+      if (total < 1e-4) continue;
+      const steps = Math.max(1, Math.ceil(total / seg));
+      for (let s = 0; s < steps; s++) {
+        const t0 = s / steps, t1 = (s + 1) / steps;
+        const p = { x: a.x + (b.x - a.x) * t0, z: a.z + (b.z - a.z) * t0 };
+        const q = { x: a.x + (b.x - a.x) * t1, z: a.z + (b.z - a.z) * t1 };
+        const dx = q.x - p.x, dz = q.z - p.z;
+        const len = Math.hypot(dx, dz);
+        if (len < 1e-4) continue;
+        const nx = dz / len, nz = -dx / len;
+        const pb = fb(p.x, p.z), qb = fb(q.x, q.z);
+        const pt = ft(p.x, p.z), qt = ft(q.x, q.z);
+        const o = Object.assign({ spanU: len, spanV: Math.max(0.05, (pt - pb + qt - qb) / 2) }, opts);
+        this.quadMat([p.x, pb, p.z], [q.x, qb, q.z], [q.x, qt, q.z], [p.x, pt, p.z],
+          material, [nx, 0, nz], o);
+        if (opts.doubleSided) {
+          this.quadMat([q.x, qb, q.z], [p.x, pb, p.z], [p.x, pt, p.z], [q.x, qt, q.z],
+            material, [-nx, 0, -nz], o);
+        }
       }
     }
     return this;
@@ -326,19 +406,27 @@ export class MeshBuilder {
     return this;
   }
 
-  /** Camera-facing-ish crossed billboards: weeds, bushes, hanging cables. */
+  /**
+   * Camera-facing-ish crossed billboards: weeds, bushes, foliage, cables.
+   *
+   * `opts.sway` is the sway allowance at the TOP edge of the card in metres;
+   * the bottom is always pinned at zero so nothing appears to slide across the
+   * ground it is rooted in.
+   */
   cross(cx, cy, cz, w, h, material, opts = {}) {
     const half = w / 2;
     const uv = [0, 0, 1, 1];
+    const wind = opts.sway ? [0, opts.sway] : undefined;
+    const o = { noTess: true, light: opts.light, wind };
     for (let k = 0; k < 2; k++) {
       const a = (k * Math.PI) / 2 + (opts.yaw || 0);
       const dx = Math.cos(a) * half, dz = Math.sin(a) * half;
       this.quad([cx - dx, cy, cz - dz], [cx + dx, cy, cz + dz],
         [cx + dx, cy + h, cz + dz], [cx - dx, cy + h, cz - dz],
-        uv, material.layer, [-Math.sin(a), 0.35, Math.cos(a)], { noTess: true, light: opts.light });
+        uv, material.layer, [-Math.sin(a), 0.35, Math.cos(a)], o);
       this.quad([cx + dx, cy, cz + dz], [cx - dx, cy, cz - dz],
         [cx - dx, cy + h, cz - dz], [cx + dx, cy + h, cz + dz],
-        uv, material.layer, [Math.sin(a), 0.35, -Math.cos(a)], { noTess: true, light: opts.light });
+        uv, material.layer, [Math.sin(a), 0.35, -Math.cos(a)], o);
     }
     return this;
   }
@@ -388,6 +476,7 @@ export class MeshBuilder {
     this.tx = this.ty = this.tz = 0;
     this.cy = 1; this.sy = 0;
     this.tint = null;
+    this.wind = 0;
     return this;
   }
 

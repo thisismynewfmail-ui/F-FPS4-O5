@@ -40,17 +40,57 @@ export class NavGrid {
    * segments on either side each block their own cell. Carving the openings
    * open afterwards is what makes building interiors reachable at all.
    */
-  build(collision, doorways) {
+  build(collision, doorways, opts = {}) {
     this.blocked.fill(0);
+
+    // Terrain first, so walls can overwrite it. A cliff is as solid as a wall
+    // and a steep bank is expensive to cross but not impossible — which is
+    // what makes the horde pour down the streets and around the hill rather
+    // than straight over it.
+    const terrain = opts.terrain;
+    if (terrain) {
+      const hard = opts.slopeImpassable ?? 1.05;
+      const soft = opts.slopeSlow ?? 0.42;
+      for (let cz = 0; cz < this.h; cz++) {
+        const z = this.minZ + (cz + 0.5) * RES;
+        for (let cx = 0; cx < this.w; cx++) {
+          const x = this.minX + (cx + 0.5) * RES;
+          const g = terrain.slopeAt(x, z);
+          if (g > hard) this.blocked[this.idx(cx, cz)] = 1;
+          else if (g > soft) this.blocked[this.idx(cx, cz)] = 2;
+          else if (terrain.heightAt(x, z) < (opts.waterY ?? -1e9) + 0.35) this.blocked[this.idx(cx, cz)] = 1;
+        }
+      }
+    }
+
+    // Whether a segment obstructs is a question about its height ABOVE THE
+    // GROUND AT THAT POINT, not about its absolute height. On a heightfield
+    // those are different numbers, and using the absolute one silently
+    // un-blocks every wall standing on high ground and blocks the sky over
+    // low ground. Sampled per rasterisation step, so a wall running up a bank
+    // is judged correctly along its whole length.
+    const groundAt = (x, z) => collision.ground(x, z);
+
     for (const s of collision.segments) {
-      if (s.y1 < 0.9 || s.y0 > 1.6) continue;
+      if (s.off) continue;
+      // Furniture is squeezed past, not routed around: a 1 m grid cannot tell
+      // the difference between a wardrobe and a wall, and treating a sideboard
+      // as solid fragments every room the horde is supposed to come out of.
+      const soft = s.tag === 'furniture';
+      const spreads = s.tag === 'wall' || s.tag === 'bounds' || s.tag.startsWith('cordon');
       const len = Math.hypot(s.x2 - s.x1, s.z2 - s.z1);
-      const steps = Math.max(1, Math.ceil(len / (RES * 0.5)));
+      const steps = Math.max(1, Math.ceil(len / (RES * (soft ? 0.7 : 0.5))));
       for (let i = 0; i <= steps; i++) {
         const t = i / steps;
         const x = s.x1 + (s.x2 - s.x1) * t;
         const z = s.z1 + (s.z2 - s.z1) * t;
+        const g = groundAt(x, z);
+        if (s.y1 - g < 0.9 || s.y0 - g > 1.6) continue;   // step over / duck under
         const cx = this.cellX(x), cz = this.cellZ(z);
+        if (soft) {
+          if (this.inside(cx, cz) && !this.blocked[this.idx(cx, cz)]) this.blocked[this.idx(cx, cz)] = 2;
+          continue;
+        }
         for (let dz = -1; dz <= 1; dz++) {
           for (let dx = -1; dx <= 1; dx++) {
             const nx = cx + dx, nz = cz + dz;
@@ -58,7 +98,7 @@ export class NavGrid {
             // Centre cell always blocks; the ring blocks only for real walls so
             // doorways stay passable.
             if (dx === 0 && dz === 0) this.blocked[this.idx(nx, nz)] = 1;
-            else if (s.tag === 'wall' || s.tag === 'bounds') {
+            else if (spreads) {
               if (!this.blocked[this.idx(nx, nz)]) this.blocked[this.idx(nx, nz)] = 2;
             }
           }
@@ -81,6 +121,40 @@ export class NavGrid {
         }
       }
     }
+
+    // The cordon goes on LAST and it wins.
+    //
+    // A cordon ring runs through buildings, and every building has doorways,
+    // and the pass above exists precisely to carve doorways back open. Run in
+    // that order the barricade in the corridor is opened again by the door at
+    // the end of it, and the cordon quietly stops existing — the town looks
+    // walled and is not. Re-rasterising it afterwards is the whole fix, and it
+    // is also the reason a cordon segment is tagged rather than merely being a
+    // wall: the tag is what makes it identifiable as "may not be carved".
+    let cordonCells = 0;
+    for (const s of collision.segments) {
+      if (s.off || !s.tag.startsWith('cordon')) continue;
+      const len = Math.hypot(s.x2 - s.x1, s.z2 - s.z1);
+      const steps = Math.max(2, Math.ceil(len / (RES * 0.4)));
+      for (let i = 0; i <= steps; i++) {
+        const t = i / steps;
+        const x = s.x1 + (s.x2 - s.x1) * t;
+        const z = s.z1 + (s.z2 - s.z1) * t;
+        const g = groundAt(x, z);
+        if (s.y1 - g < 0.9 || s.y0 - g > 1.6) continue;
+        const cx = this.cellX(x), cz = this.cellZ(z);
+        // Both the cell and its four neighbours: a 1 m grid cannot represent a
+        // 2 m barricade as a line of single cells without diagonal leaks.
+        for (const [dx, dz] of [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          const nx = cx + dx, nz = cz + dz;
+          if (this.inside(nx, nz) && this.blocked[this.idx(nx, nz)] !== 1) {
+            this.blocked[this.idx(nx, nz)] = 1;
+            cordonCells++;
+          }
+        }
+      }
+    }
+    this.cordonCells = cordonCells;
     this.dirty = false;
   }
 

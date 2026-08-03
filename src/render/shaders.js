@@ -32,12 +32,15 @@ in vec2 aUV;
 in float aLayer;
 in vec3 aLight;
 in vec3 aNormal;
+in float aWind;              // sway allowance in metres; 0 on everything solid
 
 uniform mat4 uViewProj;
 uniform mat4 uModel;
 uniform bool uUseModel;
 uniform vec2 uSnap;          // snapping grid resolution in pixels; 0 disables
 uniform float uAffine;       // 0 = perspective correct, 1 = full PS1 warp
+uniform float uTime;
+uniform vec3 uWind;          // xz = prevailing direction * strength, y = gust
 
 uniform vec3 uCamPos;
 uniform vec2 uFog;           // start, end
@@ -61,6 +64,19 @@ out vec3 vNormal;
 void main() {
   vec4 world = uUseModel ? uModel * vec4(aPos, 1.0) : vec4(aPos, 1.0);
   vec3 nrm = uUseModel ? normalize(mat3(uModel) * aNormal) : aNormal;
+
+  // Wind. Two sines a prime ratio apart so the loop is long enough not to read
+  // as a loop, phase-shifted by world position so no two plants are in step,
+  // plus a slow gust that sweeps across the map as a travelling wave. The
+  // whole vegetation animation budget is these four lines.
+  if (aWind > 0.0) {
+    float phase = world.x * 0.37 + world.z * 0.51;
+    float s = sin(uTime * 1.7 + phase) * 0.68 + sin(uTime * 2.9 + phase * 1.7) * 0.32;
+    float gust = 0.65 + 0.35 * sin(uTime * 0.37 - (world.x + world.z) * 0.018);
+    world.xz += uWind.xz * aWind * s * gust;
+    world.y -= abs(s) * aWind * uWind.y;
+  }
+
   vWorld = world.xyz;
   vNormal = nrm;
 

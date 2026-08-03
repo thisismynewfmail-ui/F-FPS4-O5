@@ -120,8 +120,14 @@ export function destroyRenderTarget(gl, rt) {
 }
 
 // --- vertex layout ---------------------------------------------------------
-// pos(3f) uv(2f) layer(1f) light(3f) normal(3f) = 12 floats = 48 bytes.
-export const VERTEX_FLOATS = 12;
+// pos(3f) uv(2f) layer(1f) light(3f) normal(3f) wind(1f) = 13 floats = 52 bytes.
+//
+// `wind` is how far this vertex is allowed to be pushed around by the wind, in
+// metres. It is zero on everything structural and non-zero only on the tops of
+// foliage cards, which is the whole of the vegetation animation system: no
+// skinning, no per-object update, just one number per vertex and a sine wave
+// in the vertex shader. That is exactly how the era did it.
+export const VERTEX_FLOATS = 13;
 export const VERTEX_STRIDE = VERTEX_FLOATS * 4;
 
 export function setupVAO(gl, program, vbo, ibo) {
@@ -139,6 +145,7 @@ export function setupVAO(gl, program, vbo, ibo) {
   bind('aLayer', 1, 5);
   bind('aLight', 3, 6);
   bind('aNormal', 3, 9);
+  bind('aWind', 1, 12);
   if (ibo) gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo);
   gl.bindVertexArray(null);
   return vao;

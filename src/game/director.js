@@ -38,6 +38,10 @@ export class Director {
     this.noticeT = 0;
     this.panic = 0;
     this.difficulty = opts.difficulty || 1;
+    // The horde comes out of the town the player is standing in, not out of
+    // the sectors still behind a cordon. Without this the first wave arrives
+    // from three streets away through a welded coach.
+    this.progression = opts.progression || null;
 
     // Sort spawn points into buckets so we can prefer interior spawns when the
     // player is inside and street spawns when they are out in the open.
@@ -99,10 +103,12 @@ export class Director {
     const fovCos = Math.cos(0.95);
     const dirX = Math.sin(camera.yaw), dirZ = Math.cos(camera.yaw);
 
+    const open = this.progression ? this.progression.open : 99;
     for (let attempt = 0; attempt < 24; attempt++) {
       const list = attempt < 16 ? pool : alt;
       if (!list.length) return null;
       const s = list[Math.floor(this.rng.next() * list.length)];
+      if ((s.district ?? 0) > open) continue;
       const p = s.p;
       const d = dist2D(p.x, p.z, player.x, player.z);
       if (d < 13 || d > 78) continue;

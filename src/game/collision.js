@@ -21,7 +21,15 @@ export class CollisionWorld {
     this.segGrid = new Map();
     this.floorGrid = new Map();
     this.bounds = bounds;
+    // Ground is a heightfield, not a plane. `terrain` is installed by the
+    // world generator; until then everything stands on the datum.
+    this.terrain = null;
     this.groundY = 0;
+  }
+
+  /** Ground height under (x,z). One call, so nothing can disagree about it. */
+  ground(x, z) {
+    return this.terrain ? this.terrain.heightAt(x, z) : this.groundY;
   }
 
   key(x, z) { return `${Math.floor(x / CELL)},${Math.floor(z / CELL)}`; }
@@ -29,7 +37,7 @@ export class CollisionWorld {
   addSegment(x1, z1, x2, z2, y0, y1, tag = 'wall') {
     const len = Math.hypot(x2 - x1, z2 - z1);
     if (len < 0.05 || y1 - y0 < 0.05) return;
-    const seg = { x1, z1, x2, z2, y0, y1, tag, id: this.segments.length };
+    const seg = { x1, z1, x2, z2, y0, y1, tag, id: this.segments.length, off: false };
     this.segments.push(seg);
     const steps = Math.max(1, Math.ceil(len / CELL));
     for (let i = 0; i <= steps; i++) {
@@ -62,6 +70,28 @@ export class CollisionWorld {
     return f;
   }
 
+  /**
+   * Retire every segment carrying `tag`. This is how a cordon gate opens: the
+   * geometry is swapped for its open state and the barrier stops existing to
+   * physics. Cheaper and far less error-prone than rebuilding the grid.
+   */
+  disableTag(tag) {
+    let n = 0;
+    for (const s of this.segments) {
+      if (s.tag === tag && !s.off) { s.off = true; n++; }
+    }
+    return n;
+  }
+
+  /** Put a retired tag back. Only a restart needs this. */
+  enableTag(tag) {
+    let n = 0;
+    for (const s of this.segments) {
+      if (s.tag === tag && s.off) { s.off = false; n++; }
+    }
+    return n;
+  }
+
   nearbySegments(x, z, radius, out) {
     const res = out || [];
     res.length = 0;
@@ -76,7 +106,8 @@ export class CollisionWorld {
         for (const id of list) {
           if (seen.has(id)) continue;
           seen.add(id);
-          res.push(this.segments[id]);
+          const s = this.segments[id];
+          if (!s.off) res.push(s);
         }
       }
     }
@@ -88,7 +119,7 @@ export class CollisionWorld {
    * could stand on, allowing a step up of `step`.
    */
   floorAt(x, z, feetY, step = 0.6) {
-    let best = this.groundY;
+    let best = this.ground(x, z);
     const list = this.floorGrid.get(this.key(x, z));
     if (list) {
       for (const id of list) {
@@ -182,6 +213,7 @@ export class CollisionWorld {
             if (seen.has(id)) continue;
             seen.add(id);
             const s = this.segments[id];
+            if (s.off) continue;
             const ex = s.x2 - s.x1, ez = s.z2 - s.z1;
             const denom = dx * ez - dz * ex;
             if (Math.abs(denom) < 1e-9) continue;
@@ -209,10 +241,6 @@ export class CollisionWorld {
         const t = (y - oy) / dy;
         if (t < 0 || t > maxDist || (best && t >= best.dist)) return;
         const px = ox + dx * t, pz = oz + dz * t;
-        if (y === this.groundY) {
-          best = { dist: t, x: px, y, z: pz, nx: 0, ny: 1, nz: 0, tag: 'ground', kind: 'floor' };
-          return;
-        }
         const list = this.floorGrid.get(this.key(px, pz));
         if (!list) return;
         for (const id of list) {
@@ -225,13 +253,32 @@ export class CollisionWorld {
         }
       };
       // Candidate planes near the ray.
-      const ys = new Set([this.groundY]);
+      const ys = new Set();
       const mid = { x: ox + dx * maxDist * 0.5, z: oz + dz * maxDist * 0.5 };
       for (const k of [this.key(ox, oz), this.key(mid.x, mid.z), this.key(ox + dx * maxDist, oz + dz * maxDist)]) {
         const list = this.floorGrid.get(k);
         if (list) for (const id of list) ys.add(this.floors[id].y);
       }
       for (const y of ys) checkPlane(y);
+    }
+
+    // The ground itself. A hill is cover: a shot that clears a wall can still
+    // bury itself in the slope in front of it, and line of sight has to agree.
+    if (this.terrain) {
+      const limit = best ? Math.min(best.dist, maxDist) : maxDist;
+      const g = this.terrain.raycast(ox, oy, oz, dx, dy, dz, limit);
+      if (g && (!best || g.dist < best.dist)) {
+        const n = this.terrain.normalAt(g.x, g.z);
+        best = { dist: g.dist, x: g.x, y: g.y, z: g.z, nx: n.x, ny: n.y, nz: n.z, tag: 'ground', kind: 'floor' };
+      }
+    } else if (Math.abs(dy) > 1e-6) {
+      const t = (this.groundY - oy) / dy;
+      if (t >= 0 && t <= maxDist && (!best || t < best.dist)) {
+        best = {
+          dist: t, x: ox + dx * t, y: this.groundY, z: oz + dz * t,
+          nx: 0, ny: 1, nz: 0, tag: 'ground', kind: 'floor',
+        };
+      }
     }
     return best;
   }

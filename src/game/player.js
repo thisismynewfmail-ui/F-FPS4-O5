@@ -149,7 +149,30 @@ export class Player {
     else this.sprintStamina = clamp01(this.sprintStamina + dt * (this.crouching ? 0.34 : 0.17));
 
     const baseSpeed = this.crouching ? 1.85 : (sprinting ? 6.05 : 3.75);
-    const speed = baseSpeed * this.speedScale * (opts.slow || 1);
+
+    // --- terrain --------------------------------------------------------
+    // A hill is only tactical if climbing it costs you something. Uphill work
+    // is charged against speed in proportion to the grade you are actually
+    // attacking, so traversing a bank sideways is cheap and going straight up
+    // it is not; downhill gives a little of it back, up to a point.
+    let slopeMul = 1;
+    this.grade = 0;
+    if (this.grounded && collision.terrain) {
+      const t = collision.terrain;
+      const e = 1.1;
+      const gx = (t.heightAt(this.x + e, this.z) - t.heightAt(this.x - e, this.z)) / (2 * e);
+      const gz = (t.heightAt(this.x, this.z + e) - t.heightAt(this.x, this.z - e)) / (2 * e);
+      const mag = Math.hypot(gx, gz);
+      if (mag > 0.001) {
+        const wl = Math.hypot(this.vx, this.vz) || 1;
+        // Grade along the direction of travel: + uphill, - downhill.
+        this.grade = (gx * (this.vx / wl) + gz * (this.vz / wl));
+        const up = clamp01((this.grade - 0.16) / 0.62);
+        const down = clamp01((-this.grade - 0.20) / 0.70);
+        slopeMul = 1 - up * 0.62 + down * 0.13;
+      }
+    }
+    const speed = baseSpeed * this.speedScale * (opts.slow || 1) * slopeMul;
 
     // Camera-relative. forward = (sin yaw, cos yaw); the view basis puts
     // screen-right at (-cos yaw, sin yaw), so D strafes along that.
@@ -190,8 +213,16 @@ export class Player {
     }
 
     const prevY = this.y;
+    const wasGrounded = this.grounded;
     this.y += this.vy * dt;
     const floor = collision.floorAt(this.x, this.z, prevY, 0.62);
+    // Walking off the crown of a hill should not launch you. If we were on the
+    // ground and the ground has merely fallen away under us by less than a
+    // step, stay glued to it.
+    if (wasGrounded && this.vy <= 0 && this.y > floor && this.y - floor < 0.55) {
+      this.y = floor;
+      this.vy = 0;
+    }
     if (this.y <= floor) {
       if (!this.grounded && this.vy < -7) {
         this.landDip = clamp(this.vy * 0.014, -0.34, 0);

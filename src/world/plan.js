@@ -414,13 +414,17 @@ export function chooseOpenSpaces(blocks, cfg, rng, zoning) {
     zone: zoning.zoneAt(b.centroid.x, b.centroid.z),
   }));
 
-  // The square: a modest block right on the crossroads.
+  // The square: a modest block right on the crossroads. It has to sit well
+  // inside the first cordon, because the first cordon is the whole of the
+  // opening sector and the square is what the player is given to stand on.
+  const inner = (cfg.districts ? cfg.districts[0].radius : 0.245) * (cfg.mapSize / 2) * 0.62;
   const squareCandidates = scored
-    .filter((s) => s.d < cfg.coreRadius * 0.95 && s.b.area > 900 && s.b.area < 7000)
+    .filter((s) => s.b.area > 900 && s.b.area < 7000)
     .sort((a, b) => a.d - b.d);
-  if (squareCandidates.length) {
-    squareCandidates[0].b.forceOpen = true;
-    squareCandidates[0].b.openKind = 'square';
+  const square = squareCandidates.find((s) => s.d < inner) || squareCandidates[0];
+  if (square) {
+    square.b.forceOpen = true;
+    square.b.openKind = 'square';
   }
 
   // Two or three parks, spread out, in the residential ring.

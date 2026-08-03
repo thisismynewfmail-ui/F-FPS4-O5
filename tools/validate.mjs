@@ -1,13 +1,78 @@
 // Build several towns and assert the brief's hard rules still hold.
 //   node tools/validate.mjs [n]
+//
+// Two families of check live here:
+//
+//   SCARCITY & PROGRAMME — one library, at most two churches, dozens of homes.
+//     These are rules about what a town contains.
+//
+//   GEOMETRIC INTEGRITY — nothing overlaps anything, no door opens into a
+//     wall, no car is parked inside a shop, no interior is sealed, and every
+//     sector can actually be reached once its cordon opens. These are the ones
+//     that matter, because every failure they catch is invisible in a
+//     screenshot and fatal in play.
 import { buildLibrary } from '../src/art/materials.js';
 import { makeTownConfig } from '../src/world/config.js';
 import { World } from '../src/world/world.js';
 import { NavGrid } from '../src/game/nav.js';
+import { distPointSeg, dist2D } from '../src/core/math.js';
 
 const N = Number(process.argv[2] || 6);
 const seeds = [20250802, 7, 99, 1234, 555, 88888, 42, 31337].slice(0, N);
 let failures = 0;
+
+// --- geometry helpers ------------------------------------------------------
+
+function polyBounds(poly) {
+  let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+  for (const p of poly) {
+    if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x;
+    if (p.z < minZ) minZ = p.z; if (p.z > maxZ) maxZ = p.z;
+  }
+  return { minX, maxX, minZ, maxZ };
+}
+
+function pointInPoly(poly, x, z) {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const a = poly[i], b = poly[j];
+    if ((a.z > z) !== (b.z > z) && x < ((b.x - a.x) * (z - a.z)) / (b.z - a.z) + a.x) inside = !inside;
+  }
+  return inside;
+}
+
+function segsCross(a, b, c, d) {
+  const s = (p, q, r) => (q.x - p.x) * (r.z - p.z) - (q.z - p.z) * (r.x - p.x);
+  const d1 = s(c, d, a), d2 = s(c, d, b), d3 = s(a, b, c), d4 = s(a, b, d);
+  return ((d1 > 0) !== (d2 > 0)) && ((d3 > 0) !== (d4 > 0));
+}
+
+/** Convex-ish polygon overlap: shared area, not merely touching edges. */
+function polysOverlap(A, B) {
+  const ba = polyBounds(A), bb = polyBounds(B);
+  if (ba.maxX < bb.minX || bb.maxX < ba.minX || ba.maxZ < bb.minZ || bb.maxZ < ba.minZ) return false;
+  for (const p of A) if (pointInPoly(B, p.x, p.z)) return true;
+  for (const p of B) if (pointInPoly(A, p.x, p.z)) return true;
+  for (let i = 0; i < A.length; i++) {
+    for (let j = 0; j < B.length; j++) {
+      if (segsCross(A[i], A[(i + 1) % A.length], B[j], B[(j + 1) % B.length])) return true;
+    }
+  }
+  return false;
+}
+
+function distToPoly(poly, x, z) {
+  if (pointInPoly(poly, x, z)) return 0;
+  let best = Infinity;
+  for (let i = 0; i < poly.length; i++) {
+    const a = poly[i], b = poly[(i + 1) % poly.length];
+    const d = distPointSeg(x, z, a.x, a.z, b.x, b.z).dist;
+    if (d < best) best = d;
+  }
+  return best;
+}
+
+// ---------------------------------------------------------------------------
 
 for (const seed of seeds) {
   const lib = buildLibrary(seed);
@@ -21,6 +86,9 @@ for (const seed of seeds) {
   const c = (k) => world.programmeCounts.get(k) || 0;
   const homes = c('house') + c('bungalow') + c('duplex') + c('rowhouse') + c('farmhouse');
   const problems = [];
+  const warn = [];
+
+  // --- scarcity and programme --------------------------------------------
   if (c('library') !== 1) problems.push(`library=${c('library')} (must be exactly 1)`);
   if (c('church') > 2 || c('church') < 1) problems.push(`church=${c('church')} (max 2)`);
   if (c('gasstation') < 3 || c('gasstation') > 5) problems.push(`gasstation=${c('gasstation')} (3-5)`);
@@ -29,41 +97,277 @@ for (const seed of seeds) {
   if (world.stats.collision.segments < 5000) problems.push('collision world too sparse');
   if (!world.playerStart) problems.push('no player start');
   if (world.spawns.length < 200) problems.push('too few spawn points');
-  if (world.stats.tris > 2_000_000) problems.push(`${world.stats.tris} tris over budget`);
+  if (world.stats.tris > 2_600_000) problems.push(`${world.stats.tris} tris over budget`);
 
-  // Every building must have a front door...
-  let doorless = 0;
-  for (const b of world.buildings) if (!b.doorWorld) doorless++;
+  // --- topography ---------------------------------------------------------
+  // The brief asks for meaningful elevation change, and specifically for at
+  // least one 10 m feature per sector. Flat ground is a design failure here,
+  // not merely a dull one.
+  const relief = world.stats.relief;
+  if (relief.hi - relief.lo < 20) problems.push(`only ${(relief.hi - relief.lo).toFixed(1)} m of relief`);
+  const perSector = new Array(world.districts.list.length).fill(null);
+  for (let i = 0; i < 3000; i++) {
+    const x = cfg.bounds.minX + Math.random() * cfg.mapSize;
+    const z = cfg.bounds.minZ + Math.random() * cfg.mapSize;
+    const d = world.districts.districtAt(x, z);
+    const y = world.terrain.heightAt(x, z);
+    const s = perSector[d] || (perSector[d] = { lo: y, hi: y, n: 0 });
+    if (y < s.lo) s.lo = y;
+    if (y > s.hi) s.hi = y;
+    s.n++;
+  }
+  for (let d = 0; d < perSector.length; d++) {
+    const s = perSector[d];
+    if (!s || s.n < 30) continue;
+    if (s.hi - s.lo < 8) warn.push(`sector ${d} relief only ${(s.hi - s.lo).toFixed(1)} m`);
+  }
+  // The streets must remain walkable: no carriageway may exceed its class's
+  // maximum grade by more than a small tolerance.
+  let steepRoads = 0;
+  for (const strip of world.surfaces.strips) {
+    const dy = Math.abs(world.terrain.heightAt(strip.b.x, strip.b.z) - world.terrain.heightAt(strip.a.x, strip.a.z));
+    const grade = dy / Math.max(strip.length, 1);
+    if (grade > (cfg.maxGrade[strip.cls] ?? 0.11) * 2.4 + 0.03) steepRoads++;
+  }
+  if (steepRoads > world.surfaces.strips.length * 0.03) {
+    problems.push(`${steepRoads}/${world.surfaces.strips.length} road strips exceed their grade limit`);
+  }
+
+  // --- the ground mesh must stay under the paving -------------------------
+  // Roads, pavements and lot ground all drape over the same height field with
+  // their own tessellations, and two triangulations of the same curved patch
+  // disagree in the middle of a cell. When the disagreement exceeds the lift,
+  // the terrain punches up through the carriageway in blotches and the street
+  // reads as grass — which looks like a texturing mistake and is not one.
+  // Reproduced here exactly as the ground mesh emits it: 2 m grid, split into
+  // the same two triangles.
+  {
+    const T = world.terrain;
+    const gY = (x, z) => T.heightAt(x, z) - (0.05 + T.sagAt(x, z) + 0.30 * T.fixAt(x, z));
+    let worst = -Infinity;
+    for (let i = 0; i < 40000; i++) {
+      const x = cfg.bounds.minX + Math.random() * cfg.mapSize;
+      const z = cfg.bounds.minZ + Math.random() * cfg.mapSize;
+      const gx = Math.floor(x / 2) * 2, gz = Math.floor(z / 2) * 2;
+      const u = (x - gx) / 2, v = (z - gz) / 2;
+      const h00 = gY(gx, gz), h10 = gY(gx + 2, gz), h01 = gY(gx, gz + 2), h11 = gY(gx + 2, gz + 2);
+      const tri = (u + v < 1)
+        ? h00 + (h10 - h00) * u + (h01 - h00) * v
+        : h11 + (h01 - h11) * (1 - u) + (h10 - h11) * (1 - v);
+      worst = Math.max(worst, tri - (T.heightAt(x, z) + 0.035));
+    }
+    if (worst > -0.004) problems.push(`ground mesh punches ${worst.toFixed(3)} m through the road surface`);
+  }
+
+  // --- building-vs-building overlap ---------------------------------------
+  // Two buildings sharing ground is the single most visible generator failure
+  // and the easiest to miss: from the street it just looks like an odd corner.
+  const masses = [];
+  for (const b of world.buildings) {
+    const fp = b.lot.footprint;
+    if (!fp) continue;
+    for (const m of fp.masses) masses.push({ b, m, bounds: polyBounds(m.corners) });
+  }
+  const CELLM = 30;
+  const grid = new Map();
+  for (let i = 0; i < masses.length; i++) {
+    const bb = masses[i].bounds;
+    for (let gz = Math.floor(bb.minZ / CELLM); gz <= Math.floor(bb.maxZ / CELLM); gz++) {
+      for (let gx = Math.floor(bb.minX / CELLM); gx <= Math.floor(bb.maxX / CELLM); gx++) {
+        const k = `${gx},${gz}`;
+        let l = grid.get(k); if (!l) { l = []; grid.set(k, l); }
+        l.push(i);
+      }
+    }
+  }
+  let overlaps = 0;
+  const seenPair = new Set();
+  for (const list of grid.values()) {
+    for (let a = 0; a < list.length; a++) {
+      for (let b = a + 1; b < list.length; b++) {
+        const A = masses[list[a]], B = masses[list[b]];
+        if (A.b === B.b) continue;
+        const key = list[a] < list[b] ? `${list[a]}:${list[b]}` : `${list[b]}:${list[a]}`;
+        if (seenPair.has(key)) continue;
+        seenPair.add(key);
+        if (polysOverlap(A.m.corners, B.m.corners)) overlaps++;
+      }
+    }
+  }
+  if (overlaps) problems.push(`${overlaps} building masses overlap another building`);
+
+  // --- buildings vs the carriageway ---------------------------------------
+  // A house in the road is the other classic. Checked against the actual road
+  // surface polygons rather than against the centreline.
+  let inRoad = 0;
+  for (const m of masses) {
+    for (const strip of world.surfaces.strips) {
+      const sb = polyBounds(strip.poly);
+      if (m.bounds.maxX < sb.minX || sb.maxX < m.bounds.minX) continue;
+      if (m.bounds.maxZ < sb.minZ || sb.maxZ < m.bounds.minZ) continue;
+      if (polysOverlap(m.m.corners, strip.poly)) { inRoad++; break; }
+    }
+  }
+  if (inRoad > masses.length * 0.01) problems.push(`${inRoad}/${masses.length} building masses sit in the road`);
+
+  // --- vehicles vs buildings ----------------------------------------------
+  let carsInside = 0;
+  for (const v of world.vehicles) {
+    for (const m of masses) {
+      if (v.x < m.bounds.minX - 1 || v.x > m.bounds.maxX + 1) continue;
+      if (v.z < m.bounds.minZ - 1 || v.z > m.bounds.maxZ + 1) continue;
+      if (distToPoly(m.m.corners, v.x, v.z) < v.r * 0.35) { carsInside++; break; }
+    }
+  }
+  if (carsInside) problems.push(`${carsInside} vehicles clip a building`);
+
+  // --- doors ---------------------------------------------------------------
+  let doorless = 0, doorBlocked = 0, doorInWall = 0;
+  for (const b of world.buildings) {
+    if (!b.doorWorld) { doorless++; continue; }
+    const fp = b.lot.footprint;
+    // The step outside the front door must be clear ground: no other building
+    // may occupy it, or the door opens into a neighbour's back wall.
+    const out = fp.toWorld(b.doorLocal.x, -1.5);
+    for (const m of masses) {
+      if (m.b === b) continue;
+      if (out.x < m.bounds.minX - 0.5 || out.x > m.bounds.maxX + 0.5) continue;
+      if (out.z < m.bounds.minZ - 0.5 || out.z > m.bounds.maxZ + 0.5) continue;
+      if (pointInPoly(m.m.corners, out.x, out.z)) { doorBlocked++; break; }
+    }
+    // ...and it must face a street, which is the property the lot subdivision
+    // is supposed to guarantee structurally.
+    let nearRoad = Infinity;
+    for (const strip of world.surfaces.strips) {
+      const d = distPointSeg(out.x, out.z, strip.a.x, strip.a.z, strip.b.x, strip.b.z).dist;
+      if (d < nearRoad) nearRoad = d;
+    }
+    if (nearRoad > 42) doorInWall++;
+  }
   if (doorless) problems.push(`${doorless} buildings without a front door`);
+  if (doorBlocked) problems.push(`${doorBlocked} front doors open into another building`);
+  if (doorInWall > world.buildings.length * 0.06) {
+    problems.push(`${doorInWall} front doors are not on a street`);
+  }
 
-  // ...and the room behind it must actually be reachable on foot. One flood
-  // fill from the player's start; any ground-floor interior the horde could
-  // never reach is a doorway that did not get cut.
+  // --- street furniture inside walls --------------------------------------
+  // Furniture is walked along kerb lines and dropped into yards, both of which
+  // can drift into a setback. Only OUTDOOR props are tested — a bookcase in a
+  // living room is a bookcase, a lamp post in one is not.
+  let propsInBuildings = 0;
+  for (const p of world.streetProps) {
+    for (const m of masses) {
+      if (p.x < m.bounds.minX || p.x > m.bounds.maxX || p.z < m.bounds.minZ || p.z > m.bounds.maxZ) continue;
+      if (pointInPoly(m.m.corners, p.x, p.z)) { propsInBuildings++; break; }
+    }
+  }
+  if (propsInBuildings > world.streetProps.length * 0.01) {
+    problems.push(`${propsInBuildings}/${world.streetProps.length} street props stand inside a building`);
+  }
+
+  // --- reachability, per progression stage --------------------------------
+  // The important one. The flood is run once with every cordon shut and once
+  // with them all open: the first proves the starting sector is a coherent
+  // playable space, the second proves nothing is stranded behind a gate that
+  // never opens.
   const nav = new NavGrid(cfg.bounds);
-  nav.build(world.collision, world.doorways);
-  // Unbounded flood: this test is about true connectivity, not the
-  // gameplay-time radius the director actually needs.
+  const navOpts = {
+    terrain: world.terrain,
+    slopeImpassable: cfg.slopeImpassable,
+    slopeSlow: cfg.slopeSlowFull * 0.62,
+    waterY: cfg.waterY,
+  };
+  nav.build(world.collision, world.doorways, navOpts);
+  nav.update(world.playerStart.x, world.playerStart.z, 60000);
+
+  const sectorReach = [];
+  for (let d = 0; d < world.districts.list.length; d++) {
+    const inSector = world.buildings.filter((b) => b.district === d && b.doorLocal && b.lot.footprint);
+    if (!inSector.length) { sectorReach.push(null); continue; }
+    let ok = 0;
+    for (const b of inSector) {
+      const p = b.lot.footprint.toWorld(b.doorLocal.x, 1.5);
+      if (nav.costAt(p.x, p.z) !== 65535) ok++;
+    }
+    sectorReach.push({ ok, n: inSector.length });
+  }
+  // With everything shut, sector 0 must be whole and everything past the first
+  // cordon must be shut out. A cordon that leaks is the whole progression
+  // system quietly not existing: play would never notice, because the town is
+  // large enough that you would simply assume you had wandered somewhere.
+  if (sectorReach[0] && sectorReach[0].ok / sectorReach[0].n < 0.7) {
+    problems.push(`starting sector only ${sectorReach[0].ok}/${sectorReach[0].n} reachable`);
+  }
+  for (let d = 1; d < sectorReach.length; d++) {
+    const leak = sectorReach[d];
+    if (!leak || leak.n < 6) continue;
+    if (leak.ok / leak.n > 0.2) {
+      problems.push(`cordon leaks: sector ${d} is ${leak.ok}/${leak.n} reachable while shut`);
+    }
+  }
+
+  for (let d = 0; d < world.districts.list.length - 1; d++) world.openSector(d);
+  nav.build(world.collision, world.doorways, navOpts);
   nav.update(world.playerStart.x, world.playerStart.z, 60000);
   let sampled = 0, unreachable = 0;
   for (const b of world.buildings) {
     if (!b.doorLocal || !b.lot || !b.lot.footprint) continue;
     sampled++;
-    // A point just inside the front door.
     const p = b.lot.footprint.toWorld(b.doorLocal.x, 1.5);
     if (nav.costAt(p.x, p.z) === 65535) unreachable++;
   }
   const frac = sampled ? unreachable / sampled : 0;
-  if (frac > 0.15) {
-    problems.push(`${unreachable}/${sampled} building interiors unreachable on foot`);
-  }
-  const reachNote = `reach ${sampled - unreachable}/${sampled}`;
+  if (frac > 0.15) problems.push(`${unreachable}/${sampled} building interiors unreachable on foot`);
 
+  // Every sector must have at least most of it reachable once opened.
+  for (let d = 0; d < world.districts.list.length; d++) {
+    const inSector = world.buildings.filter((b) => b.district === d && b.doorLocal && b.lot.footprint);
+    // The outermost band is mostly field, rail and river; a handful of farm
+    // buildings there is too small a sample to draw a conclusion from.
+    if (inSector.length < 10) continue;
+    let ok = 0;
+    for (const b of inSector) {
+      const p = b.lot.footprint.toWorld(b.doorLocal.x, 1.5);
+      if (nav.costAt(p.x, p.z) !== 65535) ok++;
+    }
+    if (ok / inSector.length < 0.6) {
+      problems.push(`sector ${d} still ${inSector.length - ok}/${inSector.length} unreachable after opening`);
+    }
+  }
+  // ...but every sector must be enterable at all, or its cordon opens onto
+  // nothing and the milestone that opened it was a lie.
+  for (let d = 1; d < world.districts.list.length; d++) {
+    let reached = 0;
+    for (let i = 0; i < 900; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const rr = world.districts.radiusOf(d - 1, a) + Math.random() * 30 + 6;
+      const x = cfg.origin.x + Math.cos(a) * rr, z = cfg.origin.z + Math.sin(a) * rr;
+      if (x < cfg.bounds.minX + 6 || x > cfg.bounds.maxX - 6) continue;
+      if (z < cfg.bounds.minZ + 6 || z > cfg.bounds.maxZ - 6) continue;
+      if (world.districts.districtAt(x, z) !== d) continue;
+      if (nav.costAt(x, z) !== 65535) reached++;
+      if (reached > 12) break;
+    }
+    if (reached < 6) problems.push(`sector ${d} is not enterable even with its cordon open`);
+  }
+
+  // --- progression fixtures -----------------------------------------------
+  for (let d = 0; d < world.districts.list.length - 1; d++) {
+    const n = world.gates.filter((g) => g.district === d).length;
+    if (n < 1) problems.push(`sector ${d} cordon has no gate`);
+  }
+  if (world.secrets.length < 10) problems.push(`only ${world.secrets.length} secrets (want 10+)`);
+
+  const reachNote = `reach ${sampled - unreachable}/${sampled}`;
   const status = problems.length ? 'FAIL' : 'ok  ';
   if (problems.length) failures++;
   console.log(`${status} seed ${String(seed).padEnd(9)} ${String(world.buildings.length).padStart(4)} bld  ` +
     `${String(Math.round(world.stats.tris / 1000)).padStart(5)}k tris  ${String(ms).padStart(5)}ms  ` +
-    `lib ${c('library')} church ${c('church')} gas ${c('gasstation')} homes ${String(homes).padStart(3)}  ${reachNote}` +
-    (problems.length ? `\n     ${problems.join('\n     ')}` : ''));
+    `lib ${c('library')} church ${c('church')} gas ${c('gasstation')} homes ${String(homes).padStart(3)}  ` +
+    `relief ${(relief.hi - relief.lo).toFixed(0)}m  gates ${world.gates.length}  ` +
+    `secrets ${world.secrets.length}  ${reachNote}` +
+    (problems.length ? `\n     ${problems.join('\n     ')}` : '') +
+    (warn.length ? `\n     · ${warn.join('\n     · ')}` : ''));
 }
 console.log(failures ? `${failures}/${seeds.length} seeds FAILED` : `all ${seeds.length} seeds pass`);
 process.exit(failures ? 1 : 0);

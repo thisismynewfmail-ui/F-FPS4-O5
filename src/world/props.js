@@ -18,18 +18,32 @@
 
 import { TAU, clamp, lerp } from '../core/math.js';
 
-/** Register an oriented box as collision, in world space. */
-export function solidBox(ctx, mb, cx, cz, w, d, y0, y1, yaw = 0) {
+/**
+ * Register an oriented box as collision, in world space.
+ *
+ * `y0`/`y1` are LOCAL to the mesh builder's current frame and are lifted by
+ * its accumulated translation, exactly like the geometry they belong to. That
+ * matters twice over: props now stand on sloping terrain rather than on the
+ * datum, and a wardrobe on the second floor stops being a solid block sitting
+ * in the hallway underneath it.
+ *
+ * Props shorter than head height are tagged `furniture` so the navigation grid
+ * treats them as an obstruction to squeeze past rather than a wall — see
+ * nav.js for why that distinction has to exist.
+ */
+export function solidBox(ctx, mb, cx, cz, w, d, y0, y1, yaw = 0, tag) {
   if (!ctx.collision) return;
   const hw = w / 2, hd = d / 2;
   const c = Math.cos(yaw), s = Math.sin(yaw);
+  const base = mb.ty;
   const pts = [[-hw, -hd], [hw, -hd], [hw, hd], [-hw, hd]].map(([lx, lz]) => {
     const rx = lx * c + lz * s, rz = -lx * s + lz * c;
     return mb.worldPoint(cx + rx, 0, cz + rz);
   });
+  const t = tag || (y1 - y0 < 1.9 ? 'furniture' : 'prop');
   for (let i = 0; i < 4; i++) {
     const a = pts[i], b = pts[(i + 1) % 4];
-    ctx.collision.addSegment(a.x, a.z, b.x, b.z, y0, y1, 'prop');
+    ctx.collision.addSegment(a.x, a.z, b.x, b.z, base + y0, base + y1, t);
   }
 }
 
@@ -610,7 +624,7 @@ export function chainLinkFence(mb, ctx, pts, h, rng, o = {}) {
     }
     if (ctx.collision && !o.noCollide) {
       const wa = mb.worldPoint(a.x, 0, a.z), wb = mb.worldPoint(b.x, 0, b.z);
-      ctx.collision.addSegment(wa.x, wa.z, wb.x, wb.z, 0, h, 'fence');
+      ctx.collision.addSegment(wa.x, wa.z, wb.x, wb.z, mb.ty, mb.ty + h, 'fence');
     }
   }
 }
@@ -1009,12 +1023,17 @@ export function newspaperBox(mb, ctx, x, z, yaw, rng) {
 
 // --- vegetation ------------------------------------------------------------
 
+// Sway allowances, in metres of horizontal travel at the top of the card.
+// Anything above about 0.35 stops reading as wind and starts reading as a
+// physics bug, so the whole scale lives inside a third of a metre.
+const SWAY = { canopy: 0.30, pine: 0.13, bush: 0.14, weed: 0.10, grass: 0.16, ivy: 0.05 };
+
 export function tree(mb, ctx, x, z, rng, o = {}) {
   const h = o.h ?? rng.range(5, 9.5);
   const trunk = M(ctx, 'prop_wood_dark', 1.4);
-  const leaf = M(ctx, o.dead ? 'foliage_dead' : 'foliage_hedge');
+  const leaf = M(ctx, o.dead ? 'foliage_dead' : (o.pine ? 'foliage_pine' : 'foliage_hedge'));
   mb.push(x, 0, z, rng.next() * TAU);
-  mb.cylinder(0, 0, 0, h * 0.045, h * 0.55, 6, trunk, { capTop: false });
+  mb.cylinder(0, 0, 0, h * 0.045, h * (o.pine ? 0.42 : 0.55), 6, trunk, { capTop: false });
   // A few boughs.
   for (let i = 0; i < 4; i++) {
     const a = (i / 4) * TAU + rng.range(-0.4, 0.4);
@@ -1023,31 +1042,120 @@ export function tree(mb, ctx, x, z, rng, o = {}) {
     mb.quadMat([0, y0, 0], [Math.cos(a) * bl, y0 + bl * 0.7, Math.sin(a) * bl],
       [Math.cos(a) * bl, y0 + bl * 0.7 + 0.12, Math.sin(a) * bl], [0, y0 + 0.12, 0], trunk, [0, 1, 0], { noTess: true });
   }
-  if (!o.dead) {
+  if (o.pine) {
+    // Conifer: three tapering whorls. Stiffer in the wind than a broadleaf.
+    const cr = h * rng.range(0.20, 0.28);
+    for (let i = 0; i < 3; i++) {
+      const t = i / 3;
+      mb.cross(0, h * (0.28 + t * 0.42), 0, cr * 2.0 * (1 - t * 0.55), h * 0.34, leaf,
+        { yaw: rng.next() * TAU, sway: SWAY.pine * (0.4 + t) });
+    }
+  } else if (!o.dead) {
     const cr = h * rng.range(0.30, 0.44);
     for (let i = 0; i < 5; i++) {
       const a = (i / 5) * TAU;
-      mb.cross(Math.cos(a) * cr * 0.4, h * 0.42, Math.sin(a) * cr * 0.4, cr * 1.7, cr * 1.5, leaf, { yaw: a });
+      mb.cross(Math.cos(a) * cr * 0.4, h * 0.42, Math.sin(a) * cr * 0.4, cr * 1.7, cr * 1.5, leaf,
+        { yaw: a, sway: SWAY.canopy });
     }
-    mb.cross(0, h * 0.52, 0, cr * 2.0, cr * 1.7, leaf, { yaw: 0.6 });
+    mb.cross(0, h * 0.52, 0, cr * 2.0, cr * 1.7, leaf, { yaw: 0.6, sway: SWAY.canopy * 1.15 });
+  } else {
+    // Dead trees still move — bare branches whip more, not less.
+    for (let i = 0; i < 3; i++) {
+      const a = (i / 3) * TAU;
+      mb.cross(Math.cos(a) * h * 0.12, h * 0.5, Math.sin(a) * h * 0.12, h * 0.30, h * 0.34,
+        M(ctx, 'foliage_dead'), { yaw: a, sway: SWAY.canopy * 0.7 });
+    }
   }
   mb.pop();
-  solidBox(ctx, mb, x, z, h * 0.11, h * 0.11, 0, h, 0);
+  solidBox(ctx, mb, x, z, h * 0.11, h * 0.11, 0, h, 0, 'prop');
 }
 
 export function bush(mb, ctx, x, z, rng, o = {}) {
   const m = M(ctx, o.dead ? 'foliage_dead' : 'foliage_hedge');
   const s = o.s ?? rng.range(0.9, 1.7);
-  mb.cross(x, 0, z, s * 1.5, s, m, { yaw: rng.next() * TAU });
-  mb.cross(x + rng.range(-0.3, 0.3), 0, z + rng.range(-0.3, 0.3), s * 1.2, s * 0.8, m, { yaw: rng.next() * TAU });
+  mb.cross(x, 0, z, s * 1.5, s, m, { yaw: rng.next() * TAU, sway: SWAY.bush });
+  mb.cross(x + rng.range(-0.3, 0.3), 0, z + rng.range(-0.3, 0.3), s * 1.2, s * 0.8, m,
+    { yaw: rng.next() * TAU, sway: SWAY.bush * 0.8 });
 }
 
-export function weeds(mb, ctx, x, z, rng, n = 3, spread = 1.2) {
-  const m = M(ctx, rng.pick(['foliage_weed', 'foliage_dead']));
+/**
+ * Weeds and long grass. `tall` is the overgrown-lot variant that signals
+ * unexplored ground; `crack` is the tuft that has come up through a paving
+ * joint, which is the same prop at a quarter of the size.
+ */
+export function weeds(mb, ctx, x, z, rng, n = 3, spread = 1.2, o = {}) {
+  const m = M(ctx, o.tall ? 'foliage_grass' : rng.pick(['foliage_weed', 'foliage_dead', 'foliage_grass']));
+  const hi = o.tall ? 1.45 : o.crack ? 0.42 : 0.9;
+  const lo = o.tall ? 0.7 : o.crack ? 0.16 : 0.3;
   for (let i = 0; i < n; i++) {
+    const h = rng.range(lo, hi);
     mb.cross(x + rng.gauss() * spread, 0, z + rng.gauss() * spread,
-      rng.range(0.4, 0.9), rng.range(0.3, 0.8), m, { yaw: rng.next() * TAU });
+      rng.range(0.4, 0.9) * (o.tall ? 1.4 : 1), h, m,
+      { yaw: rng.next() * TAU, sway: (o.tall ? SWAY.grass : SWAY.weed) * (h / hi) });
   }
+}
+
+/**
+ * Ivy on a wall. Placed on north-facing elevations by the caller, where the
+ * damp actually sits. `up` is the wall's outward normal in world XZ.
+ */
+export function vines(mb, ctx, x, z, nx, nz, w, h, rng) {
+  const m = M(ctx, 'foliage_ivy');
+  const n = Math.max(1, Math.round(w / 1.1));
+  for (let i = 0; i < n; i++) {
+    const t = (i + 0.5) / n;
+    const px = x + (-nz) * (t - 0.5) * w, pz = z + nx * (t - 0.5) * w;
+    const hh = h * rng.range(0.45, 1.0);
+    // A flat card hugging the wall, not a crossed billboard: it has to sit
+    // against the brick, and crossing it would push half of it inside.
+    mb.quad([px - (-nz) * 0.55 + nx * 0.06, 0, pz - nx * 0.55 + nz * 0.06],
+      [px + (-nz) * 0.55 + nx * 0.06, 0, pz + nx * 0.55 + nz * 0.06],
+      [px + (-nz) * 0.55 + nx * 0.06, hh, pz + nx * 0.55 + nz * 0.06],
+      [px - (-nz) * 0.55 + nx * 0.06, hh, pz - nx * 0.55 + nz * 0.06],
+      [0, 0, 1, 1], m.layer, [nx, 0, nz], { noTess: true, wind: [0, SWAY.ivy] });
+  }
+}
+
+/** Broken paving heaved up around something that grew through it. */
+export function rubbleRing(mb, ctx, x, z, rng, r = 1.4) {
+  const slab = M(ctx, 'road_concrete', 1.2);
+  const n = rng.int(5, 9);
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * TAU + rng.range(-0.3, 0.3);
+    const d = r * rng.range(0.45, 1.0);
+    mb.push(x + Math.cos(a) * d, 0, z + Math.sin(a) * d, a + rng.range(-0.5, 0.5));
+    mb.boxC(0, 0, 0, rng.range(0.3, 0.7), rng.range(0.05, 0.16), rng.range(0.25, 0.6), slab);
+    mb.pop();
+  }
+  weeds(mb, ctx, x, z, rng, 3, r * 0.5, { crack: true });
+}
+
+/** A market stall: bare frame, torn canopy, an upturned crate or two. */
+export function marketStall(mb, ctx, x, z, yaw, rng) {
+  const frame = M(ctx, 'prop_steel', 0.8);
+  const canvas = M(ctx, rng.pick(['prop_fabric_red', 'prop_fabric_blue', 'prop_fabric_green']), 1.6);
+  const board = M(ctx, 'prop_wood_pale', 1.0);
+  const w = rng.range(2.2, 3.2), d = rng.range(1.6, 2.2), h = 2.15;
+  mb.push(x, 0, z, yaw);
+  for (const sx of [-1, 1]) {
+    for (const sz of [-1, 1]) {
+      mb.boxC(sx * (w / 2 - 0.06), 0, sz * (d / 2 - 0.06), 0.06, h, 0.06, frame);
+    }
+  }
+  mb.box(-w / 2, h, -d / 2, w / 2, h + 0.06, d / 2, frame, { skip: 'bottom' });
+  // The canopy has given way on one side, which is what makes it read as
+  // abandoned rather than as closed for the night.
+  const sag = rng.range(0.15, 0.55);
+  mb.slope([-w / 2 - 0.2, h + 0.1, -d / 2 - 0.2], [w / 2 + 0.2, h + 0.1 - sag, -d / 2 - 0.2],
+    [w / 2 + 0.2, h + 0.1 - sag, d / 2 + 0.2], [-w / 2 - 0.2, h + 0.1, d / 2 + 0.2], canvas);
+  // Trestle table.
+  if (rng.chance(0.7)) {
+    mb.box(-w / 2 + 0.1, 0.78, -0.3, w / 2 - 0.1, 0.86, 0.3, board, { skip: 'bottom' });
+    for (const sx of [-1, 1]) mb.boxC(sx * (w / 2 - 0.3), 0, 0, 0.07, 0.78, 0.5, board);
+    if (ctx.loot) ctx.loot.push({ p: mb.worldPoint(0, 0.9, 0), kind: 'crate' });
+  }
+  mb.pop();
+  solidBox(ctx, mb, x, z, w, d, 0, 0.9, yaw, 'furniture');
 }
 
 export function hedgeRow(mb, ctx, pts, rng, h = 1.2) {
@@ -1058,11 +1166,12 @@ export function hedgeRow(mb, ctx, pts, rng, h = 1.2) {
     const n = Math.max(1, Math.round(len / 0.7));
     for (let k = 0; k < n; k++) {
       const t = (k + 0.5) / n;
-      mb.cross(lerp(a.x, b.x, t), 0, lerp(a.z, b.z, t), 1.1, h * rng.range(0.85, 1.15), m, { yaw: rng.next() * TAU });
+      mb.cross(lerp(a.x, b.x, t), 0, lerp(a.z, b.z, t), 1.1, h * rng.range(0.85, 1.15), m,
+        { yaw: rng.next() * TAU, sway: SWAY.bush * 0.6 });
     }
     if (ctx.collision) {
       const wa = mb.worldPoint(a.x, 0, a.z), wb = mb.worldPoint(b.x, 0, b.z);
-      ctx.collision.addSegment(wa.x, wa.z, wb.x, wb.z, 0, h * 0.8, 'hedge');
+      ctx.collision.addSegment(wa.x, wa.z, wb.x, wb.z, mb.ty, mb.ty + h * 0.8, 'hedge');
     }
   }
 }
@@ -1088,7 +1197,7 @@ export function picketFence(mb, ctx, pts, rng, h = 1.05) {
     }
     if (ctx.collision) {
       const wa = mb.worldPoint(a.x, 0, a.z), wb = mb.worldPoint(b.x, 0, b.z);
-      ctx.collision.addSegment(wa.x, wa.z, wb.x, wb.z, 0, h, 'fence');
+      ctx.collision.addSegment(wa.x, wa.z, wb.x, wb.z, mb.ty, mb.ty + h, 'fence');
     }
   }
 }

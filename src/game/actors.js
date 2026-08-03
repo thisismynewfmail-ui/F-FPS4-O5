@@ -227,8 +227,20 @@ export class Horde {
       desiredZ += sepZ * 1.5;
 
       const dl = Math.hypot(desiredX, desiredZ) || 1;
-      const targetVX = (desiredX / dl) * speed;
-      const targetVZ = (desiredZ / dl) * speed;
+      // Hills cost the horde too, and by the same rule they cost the player.
+      // That is what makes high ground worth taking: a runner coming up at you
+      // arrives slower than one coming along the street, and the moment you
+      // give the slope back you are the one climbing.
+      let grade = 1;
+      if (collision.terrain) {
+        const t = collision.terrain, e = 1.4;
+        const ux = desiredX / dl, uz = desiredZ / dl;
+        const rise = t.heightAt(z.x + ux * e, z.z + uz * e) - t.heightAt(z.x - ux * e, z.z - uz * e);
+        grade = 1 - clamp((rise / (2 * e) - 0.16) / 0.62, 0, 1) * 0.55;
+      }
+      const speedG = speed * grade;
+      const targetVX = (desiredX / dl) * speedG;
+      const targetVZ = (desiredZ / dl) * speedG;
       const a = z.def.accel;
       z.vx = damp(z.vx, targetVX, a, dt);
       z.vz = damp(z.vz, targetVZ, a, dt);

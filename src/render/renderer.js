@@ -186,6 +186,9 @@ export class Renderer {
     gl.uniform4f(p.uniforms.uTint, 0, 0, 0, 0);
     gl.uniform1f(p.uniforms.uAlphaRef, 0.5);
     gl.uniform1f(p.uniforms.uOpacity, 1);
+    gl.uniform1f(p.uniforms.uTime, this.time);
+    const w = env.wind || [0.16, 0.05, 0.09];
+    gl.uniform3f(p.uniforms.uWind, w[0], w[1], w[2]);
 
     const n = Math.min(lights.length, MAX_LIGHTS);
     for (let i = 0; i < n; i++) {
@@ -216,6 +219,7 @@ export class Renderer {
     const cam = this.camera.pos;
     const d2 = maxDist * maxDist;
     for (const c of chunks) {
+      if (c.hidden) continue;      // cordon gates swap between two meshes
       const dx = c.centre[0] - cam.x, dz = c.centre[2] - cam.z;
       if (dx * dx + dz * dz > d2) continue;
       if (!aabbInFrustum(this.planes, c.min, c.max)) continue;
@@ -266,6 +270,7 @@ export class Renderer {
     gl.uniform2f(p.uniforms.uSnap, env.snap * 2.2, env.snap * 1.8);
     gl.uniform3f(p.uniforms.uTorchColor, 0, 0, 0);
     gl.uniform1i(p.uniforms.uLightCount, 0);
+    gl.uniform3f(p.uniforms.uWind, 0, 0, 0);   // the gun does not sway in the wind
     this.stats.tris += drawMesh(gl, mesh);
     this.stats.drawCalls++;
     // Restore for the next frame's world pass.

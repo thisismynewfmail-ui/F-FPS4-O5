@@ -327,6 +327,58 @@ export class Audio {
     }
   }
 
+  /**
+   * A cordon gate opening, a long way off: a metal groan, a rumble, and the
+   * clang of whatever was holding it hitting the road. Panned and attenuated
+   * from the gate's actual position, so it tells the player which way to go
+   * without anything on screen saying so.
+   */
+  gateOpen(x, z) {
+    if (!this.ctx) return;
+    const t = this.now;
+    // A very long reference distance: this is meant to carry across the town.
+    // Out of range it still plays, quiet and centred — it is a sound the whole
+    // valley hears, and going silent would lose the one cue there is.
+    const sp = this.spatial(x, 2, z, 260) || { gain: 0, pan: 0 };
+    const g = this._voice(sp.pan, 0);
+    const peak = 0.34 + 0.30 * sp.gain;
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(peak, t + 0.35);
+    g.gain.setValueAtTime(peak, t + 1.5);
+    g.gain.exponentialRampToValueAtTime(0.0006, t + 2.9);
+
+    // The groan: two detuned saws grinding downward.
+    for (const det of [1, 1.013]) {
+      const o = this.ctx.createOscillator();
+      o.type = 'sawtooth';
+      o.frequency.setValueAtTime(74 * det, t);
+      o.frequency.exponentialRampToValueAtTime(41 * det, t + 2.2);
+      const f = this.ctx.createBiquadFilter();
+      f.type = 'lowpass'; f.frequency.value = 560;
+      o.connect(f); f.connect(g);
+      o.start(t); o.stop(t + 2.9);
+    }
+    // The rumble underneath it.
+    const n = this.ctx.createBufferSource();
+    n.buffer = this.noiseBuf; n.loop = true;
+    const nf = this.ctx.createBiquadFilter();
+    nf.type = 'lowpass'; nf.frequency.value = 190;
+    const ng = this.ctx.createGain(); ng.gain.value = 0.55;
+    n.connect(nf); nf.connect(ng); ng.connect(g);
+    n.start(t); n.stop(t + 2.6);
+    // And the thing that was holding it, landing.
+    const c = this.ctx.createOscillator();
+    c.type = 'square';
+    c.frequency.setValueAtTime(310, t + 2.05);
+    c.frequency.exponentialRampToValueAtTime(88, t + 2.4);
+    const cg = this.ctx.createGain();
+    cg.gain.setValueAtTime(0.0001, t + 2.05);
+    cg.gain.linearRampToValueAtTime(0.6, t + 2.08);
+    cg.gain.exponentialRampToValueAtTime(0.0005, t + 2.55);
+    c.connect(cg); cg.connect(g);
+    c.start(t + 2.05); c.stop(t + 2.6);
+  }
+
   // --- ambience ------------------------------------------------------------
 
   startAmbient() {

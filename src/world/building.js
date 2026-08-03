@@ -161,14 +161,50 @@ export function computeFootprint(lot, rng) {
   }
 
   const doorLocal = { x: w * rng.range(0.28, 0.72), z: 0 };
-  return {
-    masses, origin: O, yaw, ux, uz, vx, vz,
+  const fp = {
+    masses, origin: { x: O.x, z: O.z }, yaw, ux, uz, vx, vz,
     w, depth, setback,
-    door: toWorld(doorLocal.x, doorLocal.z - 0.1),
     doorLocal,
-    toWorld,
     lotExtent: { uMin, uMax, vMin, vMax, vFront, u0, v0 },
   };
+
+  // The footprint stays mutable after this point. Siting has to be corrected
+  // once every neighbour is known — a lot polygon can be a wedge, and a mass
+  // that fits its own bounding box can still stand in next door's kitchen or
+  // in the middle of the road. `reframe` is how the correction pass moves and
+  // resizes masses without any of them losing track of where they are.
+  fp.toWorld = (lx, lz) => ({
+    x: fp.origin.x + fp.ux * lx + fp.vx * lz,
+    z: fp.origin.z + fp.uz * lx + fp.vz * lz,
+  });
+  fp.rectCorners = (x0, z0, x1, z1) => [
+    fp.toWorld(x0, z0), fp.toWorld(x1, z0), fp.toWorld(x1, z1), fp.toWorld(x0, z1),
+  ];
+  /** Recompute world corners for every mass from its local rectangle. */
+  fp.reframe = () => {
+    for (const m of fp.masses) {
+      m.corners = fp.rectCorners(m.x0, m.z0, m.x1, m.z1);
+      m.w = m.x1 - m.x0;
+      m.d = m.z1 - m.z0;
+    }
+    const mainMass = fp.masses.find((mm) => mm.kind === 'main');
+    if (mainMass) { fp.w = mainMass.w; fp.depth = mainMass.d; }
+    fp.door = fp.toWorld(fp.doorLocal.x, fp.doorLocal.z - 0.1);
+  };
+  /**
+   * Slide the whole frame by (du,dv) in local axes while leaving every mass
+   * exactly where it is in the world. Used to shrink the main mass, which by
+   * construction must keep its corner at local (0,0).
+   */
+  fp.shiftOrigin = (du, dv) => {
+    fp.origin.x += fp.ux * du + fp.vx * dv;
+    fp.origin.z += fp.uz * du + fp.vz * dv;
+    for (const m of fp.masses) { m.x0 -= du; m.x1 -= du; m.z0 -= dv; m.z1 -= dv; }
+    fp.doorLocal.x -= du;
+    fp.doorLocal.z -= dv;
+  };
+  fp.reframe();
+  return fp;
 }
 
 // --- wall shells with openings ---------------------------------------------
@@ -466,24 +502,34 @@ export function buildBuilding(lot, ctx) {
     : commercial ? ctx.cfg.commercialStoreyHeight * rng.range(0.94, 1.08)
       : ctx.cfg.storeyHeight * rng.range(0.95, 1.06);
 
-  const plinth = industrial ? 0.18 : commercial ? 0.28 : rng.range(0.35, 0.72);
+  const plinth = industrial ? 0.22 : commercial ? 0.28 : rng.range(0.35, 0.72);
   const eaveY = plinth + sh * storeys;
 
+  // Everything in this function is authored in the building's own frame, with
+  // y=0 at the level of its pad. `baseY` is where that pad sits on the
+  // heightfield; the mesh builder carries it, and every collision, floor,
+  // doorway and spawn registration below adds it back explicitly.
+  const baseY = ctx.baseY || 0;
+  // How far the natural ground falls away under the footprint. On the hill
+  // streets this is what you actually see: a house whose front step is at
+  // pavement level and whose back wall stands on two metres of stonework.
+  const foundDrop = clamp(lot.foundDrop ?? 0.5, 0.4, 4.2);
+
   const record = {
-    lot, prog, storeys, storeyHeight: sh, plinth, eaveY,
+    lot, prog, storeys, storeyHeight: sh, plinth, eaveY, baseY, foundDrop,
     origin: fp.origin, yaw: fp.yaw, masses: fp.masses,
     label: prog.label, interiors: [], enterable: true,
     aabb: null,
   };
 
-  mb.push(fp.origin.x, 0, fp.origin.z, fp.yaw);
+  mb.push(fp.origin.x, baseY, fp.origin.z, fp.yaw);
   const main = fp.masses.find((m) => m.kind === 'main');
 
   // --- foundation ---------------------------------------------------------
   for (const m of fp.masses) {
     if (m.kind === 'porch') continue;
     const o = 0.12;
-    mb.box(m.x0 - o, -0.5, m.z0 - o, m.x1 + o, plinth, m.z1 + o, M.foundation, { skip: 'bottom top', vAlign: true, maxEdge: 5 });
+    mb.box(m.x0 - o, -foundDrop, m.z0 - o, m.x1 + o, plinth, m.z1 + o, M.foundation, { skip: 'bottom top', vAlign: true, maxEdge: 5 });
     mb.quadMat([m.x0 - o, plinth, m.z1 + o], [m.x1 + o, plinth, m.z1 + o],
       [m.x1 + o, plinth, m.z0 - o], [m.x0 - o, plinth, m.z0 - o], M.foundation, [0, 1, 0],
       { spanU: m.w + o * 2, spanV: m.d + o * 2 });
@@ -646,7 +692,7 @@ export function buildBuilding(lot, ctx) {
   // --- secondary masses ---------------------------------------------------
   for (const m of fp.masses) {
     if (m.kind === 'main') continue;
-    if (m.kind === 'porch') { buildPorch(mb, m, plinth, M, lib, rng); continue; }
+    if (m.kind === 'porch') { buildPorch(mb, m, plinth, M, lib, rng, foundDrop); continue; }
     if (m.kind === 'tower') { buildTower(mb, m, plinth, eaveY, prog.type, M, lib, rng, ctx); continue; }
     const mh = m.kind === 'garage' ? rng.range(2.5, 3.1) : sh * Math.min(storeys, m.kind === 'wing' ? 1 : storeys);
     const top = plinth + mh;
@@ -745,7 +791,7 @@ export function buildBuilding(lot, ctx) {
     record.windowLights = wl;
   }
 
-  mb.push(fp.origin.x, 0, fp.origin.z, fp.yaw);
+  mb.push(fp.origin.x, baseY, fp.origin.z, fp.yaw);
   for (let s = 0; s < storeys; s++) {
     furnishFloor(plans[s], {
       ...ctx, record, storey: s, y: plinth + s * sh, storeyHeight: sh,
@@ -824,13 +870,14 @@ function roomSpansOnFace(plan, faceName, w, d, eps = 0.25) {
 
 // --- porches, towers -------------------------------------------------------
 
-function buildPorch(mb, m, plinth, M, lib, rng) {
+function buildPorch(mb, m, plinth, M, lib, rng, drop = 0.5) {
   const deckY = plinth;
   const h = rng.range(2.5, 2.9);
   // Deck.
   mb.box(m.x0, deckY - 0.18, m.z0, m.x1, deckY, m.z1, M.trim, { skip: 'bottom' });
-  // Skirt.
-  mb.box(m.x0, 0, m.z0, m.x1, deckY - 0.18, m.z1, M.foundation, { skip: 'top bottom' });
+  // Skirt, carried down to the same depth as the foundation so a porch on a
+  // falling site does not hang in the air.
+  mb.box(m.x0, -drop, m.z0, m.x1, deckY - 0.18, m.z1, M.foundation, { skip: 'top bottom' });
   // Posts.
   const n = Math.max(2, Math.round(m.w / 2.4));
   for (let i = 0; i <= n; i++) {
@@ -910,6 +957,7 @@ function registerBuildingCollision(record, ctx, openingsByFace, main, innerWallM
   const fp = record.lot.footprint;
   const toW = fp.toWorld;
   const doorways = ctx.doorways;
+  const baseY = record.baseY || 0;
 
   // Every doorway is registered for the navigation grid. Wall rasterisation
   // alone closes a 1 m gap, so these have to be carved back open explicitly.
@@ -949,7 +997,7 @@ function registerBuildingCollision(record, ctx, openingsByFace, main, innerWallM
       const t0 = a / len, t1 = b / len;
       const p = toW(lerp(lx0, lx1, t0), lerp(lz0, lz1, t0));
       const q = toW(lerp(lx0, lx1, t1), lerp(lz0, lz1, t1));
-      collision.addSegment(p.x, p.z, q.x, q.z, y0, y1, 'wall');
+      collision.addSegment(p.x, p.z, q.x, q.z, baseY + y0, baseY + y1, 'wall');
     }
   };
 
@@ -959,24 +1007,27 @@ function registerBuildingCollision(record, ctx, openingsByFace, main, innerWallM
     .map((o) => ({ u0: o.u0 - 0.02, u1: o.u1 + 0.02 }));
 
   const w = main.w, d = main.d;
-  addWall(0, 0, w, 0, 0, top, doorGaps('front'));
-  addWall(w, 0, w, d, 0, top, []);
-  addWall(w, d, 0, d, 0, top, doorGaps('back').map((g) => ({ u0: w - g.u1, u1: w - g.u0 })));
-  addWall(0, d, 0, 0, 0, top, []);
+  // Walls start at -foundDrop so a building cut into a hillside is still solid
+  // where its uphill wall is buried.
+  const wallBase = -record.foundDrop;
+  addWall(0, 0, w, 0, wallBase, top, doorGaps('front'));
+  addWall(w, 0, w, d, wallBase, top, []);
+  addWall(w, d, 0, d, wallBase, top, doorGaps('back').map((g) => ({ u0: w - g.u1, u1: w - g.u0 })));
+  addWall(0, d, 0, 0, wallBase, top, []);
 
   for (const m of record.masses) {
     if (m.kind === 'main' || m.kind === 'porch') continue;
     const c = m.corners;
     for (let i = 0; i < 4; i++) {
       const a = c[i], b = c[(i + 1) % 4];
-      collision.addSegment(a.x, a.z, b.x, b.z, 0, record.plinth + 3.0, 'wall');
+      collision.addSegment(a.x, a.z, b.x, b.z, baseY + wallBase, baseY + record.plinth + 3.0, 'wall');
     }
   }
 
   // Floor plates.
   const poly = main.corners;
   for (let s = 0; s <= record.storeys; s++) {
-    const y = record.plinth + s * record.storeyHeight;
+    const y = baseY + record.plinth + s * record.storeyHeight;
     if (s === record.storeys && !record.roofFlat) break;
     collision.addFloor(poly, y, record.id);
   }

@@ -13,6 +13,7 @@ import { Arsenal, WEAPONS } from './weapons.js';
 import { Horde, TYPES } from './actors.js';
 import { Director } from './director.js';
 import { drawHUD } from './hud.js';
+import { Progression } from '../world/districts.js';
 import * as P from '../world/props.js';
 
 const PRESETS = {
@@ -78,7 +79,7 @@ export class Game {
 
     await report('Mapping routes', 0.93);
     this.nav = new NavGrid(this.cfg.bounds);
-    this.nav.build(this.world.collision, this.world.doorways);
+    this.rebuildNav();
 
     await report('Loading in', 0.97);
     this.setupSession();
@@ -87,13 +88,32 @@ export class Game {
     return this;
   }
 
+  /**
+   * Rasterise the navigation grid. Called at load and again every time a
+   * cordon opens, because the routes through the town genuinely change when a
+   * gate goes up — that is the point of the gate.
+   */
+  rebuildNav() {
+    this.nav.build(this.world.collision, this.world.doorways, {
+      terrain: this.world.terrain,
+      slopeImpassable: this.cfg.slopeImpassable,
+      slopeSlow: this.cfg.slopeSlowFull * 0.62,
+      waterY: this.cfg.waterY,
+    });
+  }
+
   setupSession() {
     const start = this.world.playerStart;
     this.player = new Player(start.x, start.z, this.world.playerYaw);
-    this.player.y = this.world.collision.floorAt(start.x, start.z, 2, 3);
+    this.player.y = this.world.collision.floorAt(start.x, start.z, (start.y ?? 0) + 2, 3);
     this.arsenal = new Arsenal(this.audio);
     this.horde = new Horde(this);
-    this.director = new Director(this.world, this.horde, { seed: this.seed, difficulty: this.difficulty });
+    this.progression = new Progression(this.world, {
+      onUnlock: (sector, open) => this.onSectorOpen(sector, open),
+    });
+    this.director = new Director(this.world, this.horde, {
+      seed: this.seed, difficulty: this.difficulty, progression: this.progression,
+    });
     this.dynamicMesh = this.renderer.createDynamic(90000);
     this.viewMesh = this.renderer.createDynamic(4000);
     // Actors are lit by the world's own probe so they sit in the scene instead
@@ -106,6 +126,46 @@ export class Game {
     this.toast('WASD MOVE  LMB FIRE  R RELOAD  F LAMP  E USE', [0.8, 0.85, 0.8]);
   }
 
+  /**
+   * A cordon has opened. Nothing here announces a mechanic: the world makes a
+   * noise a long way off, the geometry changes, and the routes change with it.
+   * If the player happens to be looking the right way they will see a shutter
+   * go up. If not, they will find it open later and never know when.
+   */
+  onSectorOpen(sector, open) {
+    const changed = this.world.openSector(sector.id);
+    this.rebuildNav();
+    if (this.audio) {
+      const g = this.nearestGate(sector.id);
+      if (g) this.audio.gateOpen ? this.audio.gateOpen(g.x, g.z) : this.audio.waveHorn(open + 3);
+      else this.audio.waveHorn(open + 3);
+    }
+    // Deliberately diegetic wording, and no mention of a threshold.
+    const dir = this.bearingWord(this.nearestGate(sector.id));
+    this.toast(`SOMETHING GAVE WAY${dir ? ` TO THE ${dir}` : ''}`, [0.85, 0.78, 0.55]);
+    this.toast(`${this.progression.current.name} IS OPEN`, [0.7, 0.82, 0.7]);
+    // New ground means new supplies, and the reverse: the reason to want it.
+    this.spawnItems();
+    return changed;
+  }
+
+  nearestGate(sectorId) {
+    let best = null;
+    for (const g of this.world.gates) {
+      if (g.district !== sectorId) continue;
+      const d = dist2D(g.x, g.z, this.player.x, this.player.z);
+      if (!best || d < best.d) best = { d, x: g.x, z: g.z };
+    }
+    return best;
+  }
+
+  bearingWord(g) {
+    if (!g) return null;
+    const a = Math.atan2(g.x - this.player.x, g.z - this.player.z);
+    const names = ['NORTH', 'NORTH-EAST', 'EAST', 'SOUTH-EAST', 'SOUTH', 'SOUTH-WEST', 'WEST', 'NORTH-WEST'];
+    return names[Math.round(((a + TAU) % TAU) / (TAU / 8)) % 8];
+  }
+
   applyPreset(name) {
     const p = PRESETS[name] || PRESETS.authentic;
     this.presetName = name;
@@ -113,21 +173,29 @@ export class Game {
     this.renderer.setInternalHeight(p.internalHeight);
   }
 
-  /** Turn the generator's loot points into things you can pick up. */
+  /**
+   * Turn the generator's loot points into things you can pick up — but only in
+   * the sectors that are actually open. The ammunition economy is the reason
+   * to want the next cordon down, so stocking a locked sector in advance would
+   * throw away most of what the progression is worth. Called again on every
+   * unlock, which is why used points are consumed rather than re-drawn.
+   */
   spawnItems() {
     const rng = this.rng;
-    const loot = this.world.loot.slice();
-    rng.shuffle(loot);
-    const budget = Math.min(loot.length, 260);
-    const weaponPlan = ['smg', 'shotgun', 'rifle', 'smg', 'shotgun'];
-    let wi = 0;
+    const open = this.progression ? this.progression.open : 0;
+    const pool = this.world.loot.filter((l) => l && l.p && !l.used && (l.district ?? 0) <= open);
+    rng.shuffle(pool);
+    // The first sector is small, so it gets a denser slice of what it holds;
+    // later sectors are large and are meant to be searched.
+    const budget = Math.min(pool.length, open === 0 ? 90 : 150);
+    const weaponPlan = this.weaponPlan || (this.weaponPlan = ['smg', 'shotgun', 'rifle', 'smg', 'shotgun', 'rifle']);
     for (let i = 0; i < budget; i++) {
-      const l = loot[i];
-      if (!l || !l.p) continue;
+      const l = pool[i];
+      l.used = true;
       let kind;
       const r = rng.next();
-      if (wi < weaponPlan.length && (l.kind === 'locker' || l.kind === 'register' || l.kind === 'tools') && rng.chance(0.5)) {
-        kind = weaponPlan[wi++];
+      if (weaponPlan.length && (l.kind === 'locker' || l.kind === 'register' || l.kind === 'tools') && rng.chance(0.5)) {
+        kind = weaponPlan.shift();
       } else if (l.kind === 'medicine' || l.kind === 'fridge') kind = r < 0.6 ? 'health' : 'ammo';
       else if (l.kind === 'locker') kind = r < 0.5 ? 'armor' : 'ammo';
       else if (r < 0.46) kind = 'ammo';
@@ -149,14 +217,22 @@ export class Game {
   restart() {
     this.horde.clear();
     this.items.length = 0;
+    this.weaponPlan = null;
+    for (const l of this.world.loot) l.used = false;
     this.particles.length = 0;
     this.stats = { kills: 0, headshots: 0, shots: 0, hits: 0, damage: 0 };
     this.toasts.length = 0;
     const start = this.world.playerStart;
     this.player = new Player(start.x, start.z, this.world.playerYaw);
-    this.player.y = this.world.collision.floorAt(start.x, start.z, 2, 3);
+    this.player.y = this.world.collision.floorAt(start.x, start.z, (start.y ?? 0) + 2, 3);
     this.arsenal = new Arsenal(this.audio);
-    this.director = new Director(this.world, this.horde, { seed: this.seed + 1, difficulty: this.difficulty });
+    // A restart re-closes every cordon: the town is back to one block again.
+    this.progression.reset();
+    for (let i = this.world.districts.list.length - 2; i >= 0; i--) this.world.closeSector(i);
+    this.rebuildNav();
+    this.director = new Director(this.world, this.horde, {
+      seed: this.seed + 1, difficulty: this.difficulty, progression: this.progression,
+    });
     this.spawnItems();
     this.fadeIn = 1;
     this.state = 'play';
@@ -341,6 +417,7 @@ export class Game {
     if (!z.alive) {
       this.stats.kills++;
       this.director.onKill(z);
+      this.progression.setKills(this.stats.kills);
       const gibs = z.overkill ? 12 : 4;
       this.horde.spawnGibs(z, gibs, this.lib, this.rng);
       if (this.audio && z.overkill) this.audio.gib(z.x, z.y + 1, z.z);
@@ -436,6 +513,10 @@ export class Game {
       grade: [1.02, 1.0, 0.96],
       viewDistance: 300,
       viewmodelFov: 1.15,
+      // Prevailing wind: west-south-west, which is why the moss and the ivy
+      // are on the walls they are on. y is the small downward bow a card takes
+      // as it leans, and it is what stops the sway reading as a slide.
+      wind: [0.19, 0.07, 0.11],
     };
 
     r.beginFrame(camera, env, dt);

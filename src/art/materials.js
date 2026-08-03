@@ -237,6 +237,10 @@ export function buildLibrary(seed = 1337) {
   D('plaza_stone', { tile: 3 }, (r) => T.weather(T.floorTile(r, { color: [148, 144, 134], color2: [130, 126, 118], cell: 32 }), 0.5, r, { moss: true, crack: true }));
   D('ballast', { tile: 3 }, (r) => T.ground(r, { color: [92, 88, 82], gravel: true }));
   D('water', { tile: 8 }, (r) => T.solid(r, { color: [42, 54, 56], mottle: 40, grain: 6 }));
+  // Exposed rock. `rock` clads the ridge scarp and the cuttings; `rock_dark`
+  // is the wet shale in the Hollow and under the river bank.
+  D('rock', { tile: 4.5 }, (r) => T.rock(r, { color: [124, 120, 110], lichen: [96, 108, 74] }));
+  D('rock_dark', { tile: 4.0 }, (r) => T.rock(r, { color: [86, 86, 84], bandH: 9, joints: 22, scree: true }));
 
   // --- markings (alpha) ---------------------------------------------------
   D('mark_dash', { tile: 1, fit: true }, (r) => T.markingTex(r, { style: 'dash' }));
@@ -276,6 +280,10 @@ export function buildLibrary(seed = 1337) {
   D('foliage_weed', { tile: 1, fit: true }, (r) => T.foliage(r, { color: [86, 92, 52], blades: 70 }));
   D('foliage_dead', { tile: 1, fit: true }, (r) => T.foliage(r, { color: [104, 92, 58], blades: 50 }));
   D('foliage_ivy', { tile: 1, fit: true }, (r) => T.foliage(r, { color: [46, 64, 38], leaves: 320, blades: 30 }));
+  // Long grass for the verges and the allotments, and the ridge conifers.
+  D('foliage_grass', { tile: 1, fit: true }, (r) => T.foliage(r, { color: [74, 86, 46], blades: 130 }));
+  D('foliage_pine', { tile: 1, fit: true }, (r) => T.foliage(r, { color: [38, 56, 44], leaves: 260, blades: 90 }));
+  D('hoarding', { tile: 2.4 }, (r) => T.weather(T.hoarding(r, {}), 0.6, r, { moss: true, stains: true, peel: true, peelUnder: [120, 108, 84] }));
 
   // --- props: painted metal, wood, plastic --------------------------------
   const propColors = [
@@ -311,6 +319,10 @@ export function buildLibrary(seed = 1337) {
   D('sign_road', { tile: 1, fit: true }, (r) => T.weather(T.signTex(r, { bg: [88, 100, 88], ink: [214, 212, 202], lines: 1 }), 0.55, r, { rust: true, moss: false }));
   D('sign_stopsign', { tile: 1, fit: true }, (r) => T.weather(T.signTex(r, { bg: [148, 44, 38], ink: [220, 216, 208], lines: 1, border: true }), 0.5, r, { rust: true, moss: false }));
   D('sign_poster', { tile: 1, fit: true }, (r) => T.weather(T.signTex(r, { bg: [186, 176, 152], ink: [70, 52, 48], lines: 3 }), 0.7, r, { peel: true, peelUnder: [120, 112, 100], moss: false }));
+  // The notice bolted to every cordon gate. Orange on black reads at 320x240
+  // from across a junction, which is the whole job: you should be able to see
+  // that a road is closed before you have walked down it.
+  D('sign_cordon', { tile: 1, fit: true }, (r) => T.weather(T.signTex(r, { bg: [190, 108, 34], ink: [30, 26, 24], lines: 3, border: true }), 0.6, r, { rust: true, moss: false, stains: true }));
 
   // --- gore / decals ------------------------------------------------------
   D('blood_pool', { tile: 1, fit: true }, (r) => T.bloodTex(r, { radius: 34 }));

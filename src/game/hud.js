@@ -129,6 +129,24 @@ export function drawHUD(r, game, dt) {
   const kills = `KILLS ${game.stats.kills}`;
   r.uiText(kills, pad, pad + 25 * s, s, [0.6, 0.58, 0.5, 0.7]);
 
+  // --- sector (top left, under the wave) ----------------------------------
+  // A readout, not an announcement. It names the ground you are standing on
+  // and shows a bar creeping toward whatever is next; the world itself is what
+  // tells you a cordon has gone up.
+  const prog = game.progression;
+  if (prog) {
+    const here = game.world.districts.districtAt(player.x, player.z);
+    const sector = prog.list[Math.min(here, prog.list.length - 1)];
+    r.uiText(sector.name, pad, pad + 35 * s, s, [0.62, 0.66, 0.58, 0.85]);
+    if (prog.nextThreshold !== null && isFinite(prog.nextThreshold)) {
+      const bw = 46 * s;
+      r.uiRect(pad, pad + 45 * s, bw, 2 * s, [0.16, 0.16, 0.14, 0.75]);
+      r.uiRect(pad, pad + 45 * s, bw * prog.fraction, 2 * s, [0.72, 0.62, 0.34, 0.85]);
+      const left = Math.max(0, prog.nextThreshold - prog.kills);
+      r.uiText(`${left}`, pad + bw + 4 * s, pad + 42 * s, s, [0.5, 0.48, 0.42, 0.6]);
+    }
+  }
+
   // --- compass with landmark bearings (top centre) -------------------------
   drawCompass(r, game, W, s);
 
@@ -160,7 +178,7 @@ export function drawHUD(r, game, dt) {
   }
 
   // --- toast log ----------------------------------------------------------
-  let ty = pad + 40 * s;
+  let ty = pad + 54 * s;
   for (const t of game.toasts) {
     const a = clamp01(t.t / 0.8);
     r.uiText(t.text, pad, ty, s, [t.col[0], t.col[1], t.col[2], a]);

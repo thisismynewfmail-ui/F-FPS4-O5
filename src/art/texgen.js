@@ -767,6 +767,96 @@ export function foliage(rng, p = {}) {
   return t;
 }
 
+/**
+ * Bare rock: the scarp of Ashgrove Ridge, the sides of the Hollow, the cuttings
+ * where a street was blasted through the hill.
+ *
+ * Strata first (bedding planes running roughly level, warped by a noise field),
+ * then blocky jointing across them, then spall shadows on the down-side of each
+ * joint. That order is what makes it read as *layered* at 128px rather than as
+ * generic grey mottle — the horizontal banding survives the mipmap chain and
+ * the dither, and it is the only cue that tells the player a face is climbable
+ * scree or unclimbable cliff.
+ */
+export function rock(rng, p = {}) {
+  const t = new Tex();
+  const base = p.color || [118, 114, 106];
+  const dark = p.dark || mulColor(base, 0.62);
+  t.fill(base);
+  const warp = field(22);
+  const bandH = p.bandH || 13;
+  for (let y = 0; y < TEX_SIZE; y++) {
+    for (let x = 0; x < TEX_SIZE; x++) {
+      const w = (sampleField(warp, x, y, 0, 0) - 0.5) * 18;
+      const band = Math.floor((y + w) / bandH);
+      const shade = ((band * 2654435761) >>> 0) / 4294967296;
+      const f = 0.80 + shade * 0.36;
+      // The lowest pixel of each bed is the shadow under the overhang.
+      const inBand = ((y + w) % bandH + bandH) % bandH;
+      const edge = inBand < 1.2 ? 0.66 : 1;
+      const n = (rng.next() - 0.5) * 22;
+      t.px(x, y, (base[0] + n) * f * edge, (base[1] + n) * f * edge, (base[2] + n) * f * edge);
+    }
+  }
+  // Vertical jointing: rock breaks across the beds as well as along them.
+  for (let i = 0; i < (p.joints ?? 16); i++) {
+    let x = rng.range(0, TEX_SIZE);
+    const y0 = rng.int(0, TEX_SIZE);
+    const len = rng.range(18, 70);
+    for (let s = 0; s < len; s++) {
+      x += rng.range(-0.7, 0.7);
+      t.blend(Math.round(x), (y0 + s) % TEX_SIZE, dark, 0.55);
+      t.blend(Math.round(x) + 1, (y0 + s) % TEX_SIZE, mulColor(base, 1.14), 0.30);
+    }
+  }
+  if (p.scree) t.speckle(rng, 900, [shift(base, 34), shift(base, -30), dark], 2);
+  if (p.lichen) {
+    for (let i = 0; i < 70; i++) {
+      t.blob(rng.int(0, TEX_SIZE), rng.int(0, TEX_SIZE), rng.range(3, 11),
+        p.lichen, rng, 0.30);
+    }
+  }
+  t.mottle(rng.int(0, 9999), 40, 26);
+  t.grain(rng, 16);
+  return t;
+}
+
+/**
+ * Contractors' hoarding: sheet ply on a stud frame, painted, then papered over
+ * with the same notice a hundred times and weathered off again. This is the
+ * face of the third cordon ring and the player will be looking at a lot of it,
+ * so it carries its own posters rather than borrowing the shopfront ones.
+ */
+export function hoarding(rng, p = {}) {
+  const t = new Tex();
+  const base = p.color || [96, 108, 96];
+  t.fill(base);
+  t.grain(rng, 18);
+  // Sheet joints every half-texture, with the fixing screws showing.
+  for (const x of [0, 64]) {
+    t.vline(x, 0, TEX_SIZE, mulColor(base, 0.58), 0.9);
+    t.vline(x + 1, 0, TEX_SIZE, mulColor(base, 1.15), 0.5);
+    for (let y = 6; y < TEX_SIZE; y += 21) t.set(x + 4, y, mulColor(base, 0.45));
+  }
+  t.hline(0, 0, TEX_SIZE, mulColor(base, 0.5), 0.8);
+  // Bills, torn and overlapping.
+  for (let i = 0; i < 5; i++) {
+    const px = rng.int(2, TEX_SIZE - 30), py = rng.int(4, TEX_SIZE - 40);
+    const pw = rng.int(22, 34), ph = rng.int(28, 40);
+    const paper = shift(p.paper || [198, 186, 152], rng.range(-18, 10));
+    t.rect(px, py, pw, ph, paper);
+    const ink = p.ink || [58, 46, 42];
+    for (let l = 0; l < 5; l++) {
+      const ly = py + 5 + l * 6;
+      if (ly > py + ph - 4) break;
+      t.rect(px + 3, ly, Math.max(4, pw - 6 - rng.int(0, 10)), l === 0 ? 3 : 2, ink);
+    }
+    // Torn corner.
+    for (let k = 0; k < 8; k++) t.rect(px + pw - k, py, k, rng.int(1, 4), base);
+  }
+  return t;
+}
+
 /** Ground cover: soil, gravel, dead grass, mud. */
 export function ground(rng, p = {}) {
   const t = new Tex();
